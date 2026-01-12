@@ -9,6 +9,7 @@ load_dotenv(override=True)
 # 取得 API Key
 GENAI_API_KEY = os.environ.get("GOOGLE_API_KEY")
 MODEL= os.environ.get("MODEL_NAME", "gemini-flash-latest")
+API_SECRET = os.environ.get("API_SECRET")  # 可選的安全密鑰
 
 def read_prompt_file():
     """
@@ -36,6 +37,16 @@ def execute_gemini_task(request):
         # 檢查 API Key
         if not GENAI_API_KEY:
             return "錯誤: 未設定 GOOGLE_API_KEY 環境變數", 500
+        
+        request_json = request.get_json(silent=True)
+        
+        if API_SECRET:
+            # 從 JSON 拿密碼，如果沒有就拿 header (雙重保險)
+            input_secret = request_json.get('secret') if request_json else None
+            
+            if input_secret != API_SECRET:
+                print(f"安全警告: 收到錯誤的密鑰 - {input_secret}")
+                return {"error": "權限不足 (Unauthorized)"}, 403
 
         # 初始化 Client
         client = genai.Client(api_key=GENAI_API_KEY)
