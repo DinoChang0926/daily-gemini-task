@@ -72,7 +72,10 @@ def execute_gemini_task(request):
         result_text = response.text
         print(f"執行成功，回應長度: {len(result_text)}")
         
-        return f"Gemini 回應 ({source}):\n\n{result_text}", 200
+        return {
+            "answer": result_text,
+            "source": "Gemini API"
+        }, 200
 
     except Exception as e:
         print(f"執行發生例外狀況: {e}")
