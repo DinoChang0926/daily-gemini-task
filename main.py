@@ -1,14 +1,14 @@
 import functions_framework
 import os
 from google import genai
-from google.genai import types # 引入 types 以便更精確控制設定
+from google.genai import types
 from dotenv import load_dotenv
 
 # 1. 載入環境變數
 load_dotenv(override=True)
-
-GENAI_API_KEY = os.environ.get("GOOGLE_API_KEY")
-# 建議改用明確的模型名稱，新版 SDK 對別名支援較嚴格
+PROJECT_ID = "storied-phalanx-239007"
+LOCATION = "us-central1"
+# 注意：Vertex AI 模式其實不需要讀取 API Key，但保留這行沒關係
 MODEL = os.environ.get("MODEL_NAME", "gemini-1.5-flash") 
 API_SECRET = os.environ.get("API_SECRET")
 
@@ -34,25 +34,23 @@ def execute_gemini_task(request):
     try:
         request_json = request.get_json(silent=True)
         
-        # 1. 安全檢查
+        # 1. 安全檢查 (Secret 驗證)
         if API_SECRET:
             input_secret = request_json.get('secret') if request_json else None
             if input_secret != API_SECRET:
                 return {"error": "權限不足 (Unauthorized)"}, 403
 
-        if not GENAI_API_KEY:
-            return {"error": "未設定 GOOGLE_API_KEY"}, 500
+        # [已移除] 檢查 GENAI_API_KEY 的段落
+        # 因為 Vertex AI 是認 IAM 權限，不認 API Key，所以那段檢查可以拿掉。
 
-        # 2. 決定 System Prompt (修正 Tuple 解包錯誤)
+        # 2. 決定 System Prompt
         system_instruction = ""
         
         if request_json and 'system_prompt' in request_json:
             system_instruction = request_json['system_prompt']
         else:
-            # 【關鍵修正】這裡必須解包 (Unpack) 兩個回傳值
             file_content, error = read_prompt_file()
             if error:
-                # 若讀取失敗，視需求決定報錯或降級，這裡選擇回傳錯誤
                 return {"error": error}, 500
             system_instruction = file_content
 
@@ -62,10 +60,14 @@ def execute_gemini_task(request):
         else:
             return {"error": "請提供 question 參數"}, 400
 
-        # 4. 呼叫 Gemini (使用新版 SDK 寫法)
-        client = genai.Client(api_key=GENAI_API_KEY)
+        # 4. 呼叫 Gemini (Vertex AI 模式)
+        # 這裡的縮排必須正確
+        client = genai.Client(
+            vertexai=True, 
+            project=PROJECT_ID, 
+            location=LOCATION
+        )
         
-        # 組合 Prompt
         final_prompt = f"{system_instruction}\n\n[使用者提問]\n{user_question}"
 
         response = client.models.generate_content(
@@ -78,20 +80,25 @@ def execute_gemini_task(request):
         }, 200
 
     except Exception as e:
-        # 這裡會捕捉執行期間的錯誤，但無法捕捉 Import 錯誤
         return {"error": f"執行失敗: {str(e)}"}, 500
 
 # -------------------------------------------------------
-# 本機測試區塊 (Local Testing)
+# 本機測試區塊
 # -------------------------------------------------------
 if __name__ == "__main__":
     print("=== 開始本機測試 ===")     
   
     class MockRequestCustom:
         def get_json(self, silent=True):
-            return {"question": "請幫我分析廣達"}
+            # 這裡模擬傳入 Secret (如果有設的話)
+            return {
+                "question": "請幫我分析廣達", 
+                "secret": os.environ.get("API_SECRET")
+            }
 
     print("\n[測試 2] 使用自訂問題:")
-    print(execute_gemini_task(MockRequestCustom())[0])
+    # 這裡只印出結果，不印狀態碼
+    result = execute_gemini_task(MockRequestCustom())
+    print(result)
     
     print("\n=== 測試結束 ===")
