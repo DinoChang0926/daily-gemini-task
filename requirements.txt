@@ -1,3 +1,6 @@
-functions-framework==3.*
-google-genai
+flask
+gunicorn
+functions-framework
 python-dotenv
+google-genai
+google-cloud-aiplatform
