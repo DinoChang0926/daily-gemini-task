@@ -30,67 +30,47 @@ def read_prompt_file():
 
 @functions_framework.http
 def execute_gemini_task(request):
-    """
-    GCP Cloud Function 主進入點
-    """
     try:
-        # 檢查 API Key
-        if not GENAI_API_KEY:
-            return "錯誤: 未設定 GOOGLE_API_KEY 環境變數", 500
-        
         request_json = request.get_json(silent=True)
         
+        # 1. 安全檢查
         if API_SECRET:
-            # 從 JSON 拿密碼，如果沒有就拿 header (雙重保險)
             input_secret = request_json.get('secret') if request_json else None
-            
             if input_secret != API_SECRET:
-                print(f"安全警告: 收到錯誤的密鑰 - {input_secret}")
                 return {"error": "權限不足 (Unauthorized)"}, 403
 
-        # 初始化 Client
-        client = genai.Client(api_key=GENAI_API_KEY)
+        if not GENAI_API_KEY:
+            return {"error": "未設定 GOOGLE_API_KEY"}, 500
 
-        # 讀取系統人設 (System Prompt)
-        system_instruction, error_msg = read_prompt_file()
-        if error_msg:
-            return error_msg, 500
+        # 2. 決定 System Prompt (核心修改)
+        # 優先使用 GAS 傳過來的 prompt，如果沒有則使用預設值
+        if request_json and 'system_prompt' in request_json:
+            system_instruction = request_json['system_prompt']
+        else:
+            system_instruction = read_prompt_file()
 
-        # 解析使用者提問 (User Prompt)
-        # 優先從 HTTP POST JSON Body 取得 'question' 欄位
-        # 若無傳入，則使用預設問題
-        request_json = request.get_json(silent=True)
-        
+        # 3. 取得問題
         if request_json and 'question' in request_json:
             user_question = request_json['question']
-            source = "HTTP 請求參數"
         else:
-            user_question = "請簡介 C# .NET 9 的其中一個新特性並附上範例。"
-            source = "預設腳本"
+            return {"error": "請提供 question 參數"}, 400
 
-        # 組合最終 Prompt
+        # 4. 呼叫 Gemini
+        client = genai.Client(api_key=GENAI_API_KEY)
+        
         final_prompt = f"{system_instruction}\n\n[使用者提問]\n{user_question}"
 
-        print(f"--- 執行資訊 ---\n來源: {source}\n問題: {user_question}\n----------------")
-
-        # 呼叫 Gemini API
-        # 建議先使用 1.5-flash 確保穩定，若要用 2.5 請改為 'gemini-2.5-flash'
         response = client.models.generate_content(
             model=MODEL, 
             contents=final_prompt
         )
 
-        result_text = response.text
-        print(f"執行成功，回應長度: {len(result_text)}")
-        
         return {
-            "answer": result_text,
-            "source": "Gemini API"
+            "answer": response.text
         }, 200
 
     except Exception as e:
-        print(f"執行發生例外狀況: {e}")
-        return f"發生錯誤: {str(e)}", 500
+        return {"error": str(e)}, 500
 
 # -------------------------------------------------------
 # 本機測試區塊 (Local Testing)
