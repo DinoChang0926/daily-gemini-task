@@ -1,20 +1,21 @@
 import functions_framework
 import os
 from google import genai
+from google.genai import types # 引入 types 以便更精確控制設定
 from dotenv import load_dotenv
 
-# 1. 載入環境變數 (強制覆寫，確保讀取到最新的 .env)
+# 1. 載入環境變數
 load_dotenv(override=True)
 
-# 取得 API Key
 GENAI_API_KEY = os.environ.get("GOOGLE_API_KEY")
-MODEL= os.environ.get("MODEL_NAME", "gemini-flash-latest")
-API_SECRET = os.environ.get("API_SECRET")  # 可選的安全密鑰
+# 建議改用明確的模型名稱，新版 SDK 對別名支援較嚴格
+MODEL = os.environ.get("MODEL_NAME", "gemini-1.5-flash") 
+API_SECRET = os.environ.get("API_SECRET")
 
 def read_prompt_file():
     """
-    讀取同目錄下的 prompt.txt 檔案內容作為 System Instruction
-    使用絕對路徑以確保在 Cloud Functions 環境下能正確找到檔案
+    讀取 prompt.txt
+    回傳: (content, error_message)
     """
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,12 +43,18 @@ def execute_gemini_task(request):
         if not GENAI_API_KEY:
             return {"error": "未設定 GOOGLE_API_KEY"}, 500
 
-        # 2. 決定 System Prompt (核心修改)
-        # 優先使用 GAS 傳過來的 prompt，如果沒有則使用預設值
+        # 2. 決定 System Prompt (修正 Tuple 解包錯誤)
+        system_instruction = ""
+        
         if request_json and 'system_prompt' in request_json:
             system_instruction = request_json['system_prompt']
         else:
-            system_instruction = read_prompt_file()
+            # 【關鍵修正】這裡必須解包 (Unpack) 兩個回傳值
+            file_content, error = read_prompt_file()
+            if error:
+                # 若讀取失敗，視需求決定報錯或降級，這裡選擇回傳錯誤
+                return {"error": error}, 500
+            system_instruction = file_content
 
         # 3. 取得問題
         if request_json and 'question' in request_json:
@@ -55,9 +62,10 @@ def execute_gemini_task(request):
         else:
             return {"error": "請提供 question 參數"}, 400
 
-        # 4. 呼叫 Gemini
+        # 4. 呼叫 Gemini (使用新版 SDK 寫法)
         client = genai.Client(api_key=GENAI_API_KEY)
         
+        # 組合 Prompt
         final_prompt = f"{system_instruction}\n\n[使用者提問]\n{user_question}"
 
         response = client.models.generate_content(
@@ -70,7 +78,8 @@ def execute_gemini_task(request):
         }, 200
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        # 這裡會捕捉執行期間的錯誤，但無法捕捉 Import 錯誤
+        return {"error": f"執行失敗: {str(e)}"}, 500
 
 # -------------------------------------------------------
 # 本機測試區塊 (Local Testing)
