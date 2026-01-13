@@ -1,0 +1,1 @@
+web: functions-framework --target=execute_gemini_task --port=8080
