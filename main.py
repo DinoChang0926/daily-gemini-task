@@ -1,15 +1,16 @@
+from flask import jsonify
 import functions_framework
 import os
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from google.genai.types import GenerateContentConfig, Tool, GoogleSearch 
 
 # 1. 載入環境變數
 load_dotenv(override=True)
-PROJECT_ID = "storied-phalanx-239007"
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "storied-phalanx-239007") # 建議統一讀 .env
 LOCATION = "us-central1"
-# 注意：Vertex AI 模式其實不需要讀取 API Key，但保留這行沒關係
-MODEL = os.environ.get("MODEL_NAME", "gemini-1.5-flash") 
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.0-flash-001") 
 API_SECRET = os.environ.get("API_SECRET")
 
 def read_prompt_file():
@@ -30,57 +31,65 @@ def read_prompt_file():
         return None, f"讀取 Prompt 發生錯誤: {str(e)}"
 
 @functions_framework.http
-def execute_gemini_task(request):
+def execute_gemini_task(request):  # <--- 修正 1: 這裡必須有 request 參數
     try:
-        request_json = request.get_json(silent=True)
-        
-        # 1. 安全檢查 (Secret 驗證)
-        if API_SECRET:
-            input_secret = request_json.get('secret') if request_json else None
-            if input_secret != API_SECRET:
-                return {"error": "權限不足 (Unauthorized)"}, 403
+        # 1. 接收資料
+        # 使用 request.get_json() 比較安全
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Empty payload"}), 400
 
-        # [已移除] 檢查 GENAI_API_KEY 的段落
-        # 因為 Vertex AI 是認 IAM 權限，不認 API Key，所以那段檢查可以拿掉。
+        user_question = data.get("question", "")
+        system_prompt = data.get("system_prompt", "")
+        secret = data.get("secret", "")
+        # 2. 驗證密鑰
+        if str(secret) != str(API_SECRET): # 轉字串比對較保險
+            return jsonify({"error": "Unauthorized"}), 403
+            
+        if not user_question:
+            return jsonify({"error": "Question is empty"}), 400
 
-        # 2. 決定 System Prompt
-        system_instruction = ""
-        
-        if request_json and 'system_prompt' in request_json:
-            system_instruction = request_json['system_prompt']
+        # 3. 組合 Prompt
+        # <--- 修正 2: 處理 tuple 回傳值
+        final_system_prompt = ""
+        if system_prompt:
+            final_system_prompt = system_prompt
         else:
             file_content, error = read_prompt_file()
             if error:
-                return {"error": error}, 500
-            system_instruction = file_content
+                print(f"Warning: {error}") # 印出警告但不中斷
+                final_system_prompt = "你是專業的投資分析師。" # 給個預設值以防萬一
+            else:
+                final_system_prompt = file_content
 
-        # 3. 取得問題
-        if request_json and 'question' in request_json:
-            user_question = request_json['question']
-        else:
-            return {"error": "請提供 question 參數"}, 400
-
-        # 4. 呼叫 Gemini (Vertex AI 模式)
-        # 這裡的縮排必須正確
+        # 4. 初始化 Client
         client = genai.Client(
             vertexai=True, 
-            project=PROJECT_ID, 
+            project=PROJECT_ID,
             location=LOCATION
         )
-        
-        final_prompt = f"{system_instruction}\n\n[使用者提問]\n{user_question}"
 
-        response = client.models.generate_content(
-            model=MODEL, 
-            contents=final_prompt
+        # 5. 設定 Google 搜尋工具
+        search_tool = Tool(
+            google_search=GoogleSearch() 
         )
 
-        return {
-            "answer": response.text
-        }, 200
+        # 6. 呼叫 Gemini (啟用 Search)
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=user_question,
+            config=GenerateContentConfig(
+                tools=[search_tool],
+                system_instruction=final_system_prompt,
+                temperature=0.3,
+            )
+        )
+
+        return jsonify({"answer": response.text})
 
     except Exception as e:
-        return {"error": f"執行失敗: {str(e)}"}, 500
+        print(f"Error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # -------------------------------------------------------
 # 本機測試區塊
@@ -88,17 +97,23 @@ def execute_gemini_task(request):
 if __name__ == "__main__":
     print("=== 開始本機測試 ===")     
   
-    class MockRequestCustom:
+    # 模擬 Flask 的 request 物件
+    class MockRequest:
         def get_json(self, silent=True):
-            # 這裡模擬傳入 Secret (如果有設的話)
             return {
-                "question": "請幫我分析廣達", 
-                "secret": os.environ.get("API_SECRET")
+                "question": "請幫我分析廣達 (2382) 的現況", 
+                "secret": API_SECRET 
             }
 
-    print("\n[測試 2] 使用自訂問題:")
-    # 這裡只印出結果，不印狀態碼
-    result = execute_gemini_task(MockRequestCustom())
-    print(result)
+    print("\n[測試] 模擬呼叫:")
+    # 這裡把 MockRequest 傳進去
+    result = execute_gemini_task(MockRequest())
+    
+    # 這裡回傳的是 tuple (response_body, status_code) 或是 response 物件
+    # 為了在本機看到結果，我們簡單處理一下
+    try:
+        print(result.get_data(as_text=True))
+    except:
+        print(result)
     
     print("\n=== 測試結束 ===")
