@@ -15,14 +15,15 @@ Serverless 架構：前端使用 GAS，後端使用 Cloud Run，低成本且高�
 ## 🏗️ 系統架構 (Architecture)
 
 本專案採用前後端分離架構，利用 Google 生態系優勢進行串接。
+
 ```mermaid
 graph TD
-    User[使用者] -->|輸入股票/成本| Sheet[Google Sheets (資料庫/UI)]
+    User[使用者] -->|輸入股票/成本| Sheet["Google Sheets (資料庫/UI)"]
     
     subgraph Frontend [Google Apps Script]
         Menu[自訂選單] -->|觸發| Main[主控制器]
         Main -->|1. 檢查代號| AutoFill[自動補全模組]
-        Main -->|2. 讀取 Prompt| Doc[Google Doc (Prompt)]
+        Main -->|2. 讀取 Prompt| Doc["Google Doc (Prompt)"]
         Main -->|3. 發送請求| API_Call[UrlFetchApp]
         API_Call -->|4. 接收回應| Formatter[HTML 渲染器]
         Formatter -->|5. 寄信| Gmail[Gmail Service]
@@ -31,7 +32,7 @@ graph TD
     subgraph Backend [Google Cloud Run]
         Flask[Flask Server] -->|身份驗證| Auth[Auth Layer]
         Auth -->|掛載工具| Tool[Google Search Tool]
-        Tool -->|推理分析| Vertex[Vertex AI (Gemini 2.0)]
+        Tool -->|推理分析| Vertex["Vertex AI (Gemini 2.0)"]
     end
     
     subgraph External [外部資源]
