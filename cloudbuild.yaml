@@ -1,4 +1,5 @@
 steps:
+  # 部署到 Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
@@ -10,4 +11,7 @@ steps:
       - '--source'
       - '.'
       - '--allow-unauthenticated'
-    dir: 'backend'  # 關鍵：指定工作目錄為 backend
+      # 新增以下這行，明確設定環境變數
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=$PROJECT_ID,MODEL_NAME=$_MODEL_NAME,API_SECRET=$_API_SECRET'
+    dir: 'backend'

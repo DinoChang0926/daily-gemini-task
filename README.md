@@ -15,7 +15,7 @@ Serverless 架構：前端使用 GAS，後端使用 Cloud Run，低成本且高�
 ## 🏗️ 系統架構 (Architecture)
 
 本專案採用前後端分離架構，利用 Google 生態系優勢進行串接。
-
+```mermaid
 graph TD
     User[使用者] -->|輸入股票/成本| Sheet[Google Sheets (資料庫/UI)]
     
@@ -40,7 +40,7 @@ graph TD
 
     Sheet <--> Frontend
     Frontend <-->|HTTPS POST| Backend
-
+```
 
 ## 🛠️ 技術棧 (Tech Stack)
 
@@ -55,7 +55,7 @@ Hosting: Google Cloud Run (Region: us-central1)
 Tools: Google Search Grounding
 
 ## 📂 目錄結構 (Directory Structure)
-
+```
 .
 ├── backend/                  # Python 後端程式碼
 │   ├── main.py               # Flask 主程式 (含 Gemini 呼叫邏輯)
@@ -63,13 +63,14 @@ Tools: Google Search Grounding
 │   └── Procfile              # Cloud Run 啟動指令
 ├── gas/                      # Google Apps Script 前端代碼
 │   └── Code.gs               # GAS 主邏輯
-└── prompt/                   # 策略提示詞備份
-    └── system_prompt.txt     # (請將此內容複製到 Google Doc)
-
+├── prompt/                   # 策略提示詞備份
+│   └── system_prompt.txt     # (請將此內容複製到 Google Doc)
+└── cloudbuild.yaml           # CI/CD 部署設定 (GitHub Trigger)
+```
 
 ## ⚙️ 部署教學 (Deployment)
 
-步驟 1：部署後端 (Google Cloud Run)
+### 步驟 1：部署後端 (Google Cloud Run)
 
 確認已安裝 Google Cloud SDK 並啟用專案。
 
@@ -106,7 +107,7 @@ gcloud run deploy daily-gemini-task \
 
 記下 Cloud Run 產生的 URL (結尾通常是 .run.app)。
 
-步驟 2：設定策略 Prompt
+### 步驟 2：設定策略 Prompt
 
 在 Google Drive 建立一個 Google Doc。
 
@@ -114,13 +115,13 @@ gcloud run deploy daily-gemini-task \
 
 記下該 Google Doc 的 File ID (網址 d/ 後面那串)。
 
-步驟 3：設定前端 (Google Apps Script)
+### 步驟 3：設定前端 (Google Apps Script)
 
 開啟 Google Sheet -> 擴充功能 -> Apps Script。
 
 複製 gas/Code.gs 的內容貼入編輯器。
 
-修改全域變數設定：
+### 修改全域變數設定：
 
 const API_URL = "[https://你的-cloud-run-url.a.run.app/execute_gemini_task](https://你的-cloud-run-url.a.run.app/execute_gemini_task)";
 const API_KEY = "你的自訂密鑰"; // 需與 Python 環境變數一致
