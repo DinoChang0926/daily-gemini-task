@@ -1,0 +1,13 @@
+steps:
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'daily-gemini-task'
+      - '--region'
+      - 'us-central1'
+      - '--source'
+      - '.'
+      - '--allow-unauthenticated'
+    dir: 'backend'  # 關鍵：指定工作目錄為 backend
