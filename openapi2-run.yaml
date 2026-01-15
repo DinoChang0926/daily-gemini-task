@@ -1,0 +1,58 @@
+swagger: '2.0'
+info:
+  title: LogicEngine Secure Gateway
+  version: 1.0.0
+schemes:
+  - https
+produces:
+  - application/json
+securityDefinitions:
+  firebase:
+    authorizationUrl: ""
+    flow: "implicit"
+    type: "oauth2"
+    # 修改 1: Issuer 改為 Token 中的 iss
+    x-google-issuer: "https://securetoken.google.com/gemini-task-bf803"
+    x-google-jwks_uri: "https://www.googleapis.com/service_accounts/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+    # 修改 2: Audiences 改為 Token 中的 aud
+    x-google-audiences: "gemini-task-bf803"
+
+paths:
+  # 變更點：移除 /api，直接從根目錄開始匹配
+  /{wildcard=**}:
+    post:
+      summary: Execute Gemini Task
+      operationId: executeTask
+      parameters:
+        - name: wildcard
+          in: path
+          required: true
+          type: string
+          description: Path preservation
+      x-google-backend:
+        # 你的真實後端地址 (us-central1)
+        address: "https://daily-gemini-task-986464863025.us-central1.run.app"
+        # APPEND_PATH_TO_ADDRESS 會將路徑後綴接在 address 後面
+        # Gateway "/" -> Backend "/"
+        path_translation: APPEND_PATH_TO_ADDRESS
+      security:
+        - firebase: []
+      responses:
+        '200':
+          description: OK
+    
+    # CORS 支援 (瀏覽器前端必備)
+    options:
+      summary: CORS Support
+      operationId: corsOptions
+      parameters:
+        - name: wildcard
+          in: path
+          required: true
+          type: string
+      x-google-backend:
+        address: "https://daily-gemini-task-986464863025.us-central1.run.app"
+        path_translation: APPEND_PATH_TO_ADDRESS
+      responses:
+        '200':
+          description: OK

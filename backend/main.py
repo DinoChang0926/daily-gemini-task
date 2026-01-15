@@ -41,16 +41,11 @@ def execute_gemini_task(request):  # <--- 修正 1: 這裡必須有 request 參�
 
         user_question = data.get("question", "")
         system_prompt = data.get("system_prompt", "")
-        secret = data.get("secret", "")
-        # 2. 驗證密鑰
-        if str(secret) != str(API_SECRET): # 轉字串比對較保險
-            return jsonify({"error": "Unauthorized"}), 403
             
         if not user_question:
             return jsonify({"error": "Question is empty"}), 400
-
-        # 3. 組合 Prompt
-        # <--- 修正 2: 處理 tuple 回傳值
+        
+        # 2. 組合 Prompt
         final_system_prompt = ""
         if system_prompt:
             final_system_prompt = system_prompt
