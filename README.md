@@ -1,6 +1,6 @@
 # 📈 Gemini 股票自動分析助理 (Gemini Stock Analyst - Sara Morphology)
 
-這是一個全自動化的股票投資分析系統。透過 Google Sheets 管理持股，結合 Google Cloud Run 與 Gemini 2.0 Flash (Vertex AI)，實現「即時聯網查價」與「莎拉型態學 (Sara Morphology)」策略分析，並將專業的 HTML 分析週報自動寄送至您的信箱。
+這是一個全自動化的股票投資分析系統。透過 Google Sheets 管理持股，結合 Google Cloud Run 與 Gemini 2.0 Flash (Vertex AI)，實現「即時聯網查價」與「基本面、技術線形」策略分析，並將專業的 HTML 分析自動寄送至您的信箱。
 
 ## 🚀 核心功能 (Key Features)
 
