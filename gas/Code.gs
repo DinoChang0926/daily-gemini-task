@@ -1,10 +1,12 @@
 // ==========================================
 // 1. 全域設定區 (請務必填寫)
 // ==========================================
+const GATEWAY_URL = ";
 const API_URL = "";
-const API_KEY = "";
 const PROMPT_FILE_ID = ""; // google doc
-
+const FIREBASE_API_KEY = ""; // 填入 Web API Key
+const FIREBASE_EMAIL = ""; // 填入測試帳號
+const FIREBASE_PASSWORD = "";   // 填入測試密碼
 // ==========================================
 // 2. 選單與主控制器
 // ==========================================
@@ -18,14 +20,14 @@ function onOpen() {
 }
 
 /**
- * 功能 1: 自動填寫 C 欄代號 (保留此功能，因為代號對 AI 搜尋很有幫助)
+ * 功能 1: 自動填寫 C 欄代號
  */
 function autoFillTickers() {
   const sheet = SpreadsheetApp.getActiveSheet();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) { Browser.msgBox("沒有資料"); return; }
 
-  const range = sheet.getRange(2, 2, lastRow - 1, 2); // 讀取 B(名稱), C(代號)
+  const range = sheet.getRange(2, 2, lastRow - 1, 2); 
   const data = range.getValues();
 
   let updates = [];
@@ -38,6 +40,7 @@ function autoFillTickers() {
     if (name && (!code || code === "")) {
       try {
         console.log(`正在查詢代號: ${name}`);
+        // 這裡會自動呼叫新的 callGemini (包含 Token)
         const result = callGemini(`請提供台灣股市「${name}」的股票代號。只輸出4位數字，不要有文字。`, "Output ONLY the 4-digit ticker.");
         const cleanCode = result.toString().replace(/[^\d]/g, '');
 
@@ -48,6 +51,7 @@ function autoFillTickers() {
           updates.push([code]);
         }
       } catch (e) {
+        console.error(e);
         updates.push([code]);
       }
     } else {
@@ -65,12 +69,8 @@ function autoFillTickers() {
 }
 
 /**
- * 功能 2: 核心分析邏輯 (已移除本地查價)
+ * 功能 2: 核心分析邏輯
  */
-// ==========================================
-// 2. 主程式邏輯 (自動補全代號 + 分析)
-// ==========================================
-
 function analyzeAllSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = ss.getSheets();
@@ -90,7 +90,6 @@ function analyzeAllSheets() {
     const sheet = sheets[i];
     const email = sheet.getRange("A2").getValue();
 
-    // 簡單檢查 A2 是否有 Email，有的話才處理
     if (email && email.toString().includes("@")) {
       processSheet(sheet, email, customPrompt);
       processedCount++;
@@ -106,51 +105,45 @@ function analyzeAllSheets() {
 
 function processSheet(sheet, email, promptContent) {
   const sheetName = sheet.getName();
-  sheet.getRange("A5").setValue("分析進行中..."); // 更新狀態
+  sheet.getRange("A5").setValue("分析進行中..."); 
   SpreadsheetApp.flush();
 
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
 
-  // 讀取範圍：B欄(名稱), C欄(代號), D欄(成本)
-  // getRange(row, col, numRows, numCols) -> 從第2列第2欄(B)開始，讀取3欄寬(B,C,D)
   const data = sheet.getRange(2, 2, lastRow - 1, 3).getValues();
 
   let reportContent = "";
   let successCount = 0;
 
   for (let i = 0; i < data.length; i++) {
-    const stockName = data[i][0];       // B欄
-    let stockCode = data[i][1];         // C欄 (可能會是空的)
-    const cost = data[i][2];            // D欄
+    const stockName = data[i][0];       
+    let stockCode = data[i][1];         
+    const cost = data[i][2];            
 
     if (stockName) {
       try {
-        // --- 🔥 新增功能：如果代號是空的，自動幫忙查並填回去 ---
+        // --- 自動查代號邏輯 ---
         if (!stockCode || stockCode.toString().trim() === "") {
           try {
-            // 呼叫 AI 查代號
             console.log(`發現 ${stockName} 缺代號，正在自動查詢...`);
             const tickerPrompt = `請提供台灣股市「${stockName}」的股票代號。只輸出4位數字，不要有其他文字。`;
             const result = callGemini(tickerPrompt, "Output ONLY the 4-digit ticker.");
             const cleanCode = result.toString().replace(/[^\d]/g, '');
 
             if (cleanCode.length >= 4) {
-              stockCode = cleanCode; // 更新變數，讓等下的分析報告可以用
-              // 【關鍵】寫回 Google Sheet (列號=i+2, 欄號=3即C欄)
+              stockCode = cleanCode; 
               sheet.getRange(i + 2, 3).setValue(stockCode);
               console.log(`已自動填入代號: ${stockName} -> ${stockCode}`);
             }
           } catch (e) {
             console.log(`自動查代號失敗: ${e.message}`);
-            // 失敗就算了，繼續往下跑分析
           }
         }
 
-        // --- 開始分析 (這時候 stockCode 應該已經有值了) ---
+        // --- 開始分析 ---
         let userQuestion = "";
 
-        // 組合指令
         if (cost && cost.toString() !== "") {
           userQuestion = `我持有「${stockName} (${stockCode})」，我的成本均價在 ${cost}。請務必自行搜尋最新股價，並根據搜尋到的現價與我的成本位階，給出明確的操作策略 (包含停損停利點)。`;
         } else {
@@ -162,7 +155,6 @@ function processSheet(sheet, email, promptContent) {
         const analysis = callGemini(userQuestion, promptContent);
         const formattedAnalysis = formatMarkdown(analysis);
 
-        // --- 生成 HTML 卡片 ---
         reportContent += `
           <div style="margin-bottom: 30px; border: 1px solid #ddd; padding: 15px; border-radius: 8px; background-color: #f9f9f9;">
             <h3 style="margin-top: 0; color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 8px;">
@@ -176,6 +168,7 @@ function processSheet(sheet, email, promptContent) {
 
       } catch (e) {
         reportContent += `<div style="color:red; padding:10px;">${stockName} 分析失敗: ${e.message}</div>`;
+        console.error(e);
       }
     }
   }
@@ -187,11 +180,90 @@ function processSheet(sheet, email, promptContent) {
   }
 }
 
-
-
 // ==========================================
-// 3. 工具函式
+// 3. 核心工具函式 (包含驗證邏輯)
 // ==========================================
+
+/**
+ * 取得 Firebase ID Token (含快取機制)
+ * 避免每次呼叫 API 都重新登入
+ */
+function getFirebaseToken() {
+  const cache = CacheService.getScriptCache();
+  const cachedToken = cache.get("firebase_token");
+  
+  if (cachedToken) {
+    return cachedToken;
+  }
+
+  // 呼叫 Firebase Identity Toolkit 換取 Token
+  const authUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
+  const payload = {
+    email: FIREBASE_EMAIL,
+    password: FIREBASE_PASSWORD,
+    returnSecureToken: true
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(authUrl, options);
+  const result = JSON.parse(response.getContentText());
+
+  if (response.getResponseCode() !== 200) {
+    throw new Error("Firebase 登入失敗: " + (result.error ? result.error.message : "未知錯誤"));
+  }
+
+  const token = result.idToken;
+  // Firebase Token 有效期 1 小時，我們快取 50 分鐘即可
+  cache.put("firebase_token", token, 3000); 
+  return token;
+}
+
+/**
+ * 呼叫 API Gateway (現在會帶上 Token)
+ */
+function callGemini(text, systemPrompt) {
+  // 1. 先取得 Token
+  let token;
+  try {
+    token = getFirebaseToken();
+  } catch (e) {
+    throw new Error("無法取得授權 Token: " + e.message);
+  }
+
+  // 2. 準備 Payload (移除了 secret，改用 Header 驗證)
+  const payload = { 
+    "question": text, 
+    "system_prompt": systemPrompt 
+  };
+  
+  // 3. 設定 Header (關鍵步驟)
+  const options = { 
+    "method": "post", 
+    "contentType": "application/json", 
+    "headers": {
+      "Authorization": "Bearer " + token 
+    },
+    "payload": JSON.stringify(payload), 
+    "muteHttpExceptions": true 
+  };
+
+  // 4. 發送請求
+  const response = UrlFetchApp.fetch(GATEWAY_URL, options);
+  
+  if (response.getResponseCode() === 200) {
+    return JSON.parse(response.getContentText()).answer;
+  } else if (response.getResponseCode() === 401) {
+    throw new Error("401 Unauthorized: Token 無效或 Gateway 拒絕存取");
+  } else {
+    throw new Error(`API Error ${response.getResponseCode()}: ${response.getContentText()}`);
+  }
+}
 
 function formatMarkdown(text) {
   if (!text) return "";
@@ -211,19 +283,8 @@ function sendSummaryEmail(recipient, contentBody, sheetName) {
       <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
         <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">📊 ${sheetName} 持股健檢</h2>
         ${contentBody}
-        <br><p style="color:#999; font-size:12px;">Generated by Gemini AI (with Google Search)</p>
+        <br><p style="color:#999; font-size:12px;">Generated by Gemini AI (Secure Gateway)</p>
       </div>
     `
   });
-}
-
-function callGemini(text, systemPrompt) {
-  const payload = { "question": text, "system_prompt": systemPrompt, "secret": API_KEY };
-  const options = { "method": "post", "contentType": "application/json", "payload": JSON.stringify(payload), "muteHttpExceptions": true };
-  const response = UrlFetchApp.fetch(API_URL, options);
-  if (response.getResponseCode() === 200) {
-    return JSON.parse(response.getContentText()).answer;
-  } else {
-    throw new Error(`API Error ${response.getResponseCode()}`);
-  }
 }
