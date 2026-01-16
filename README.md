@@ -4,13 +4,11 @@
 
 ## 🚀 核心功能 (Key Features)
 
-自動化代號補全：只需輸入股票名稱（如「廣達」），系統自動透過 AI 查詢並填入股票代號。
-
-即時聯網落地 (Grounding)：整合 Google Search Tool，AI 自動檢索最新的即時股價、EPS、營收 YoY 與均線數據，拒絕幻覺。
-
-Serverless 架構：前端使用 GAS，後端使用 Cloud Run，低成本且高擴充性。
-
-動態 Prompt 管理：策略邏輯儲存於 Google Doc，無需更動程式碼即可調整 AI 分析風格。
+* 企業級資安 (Enterprise Security)：導入 Firebase Auth 與 API Gateway，徹底封鎖後端 IP，僅允許持有有效 Token 的流量進入。
+* 自動化代號補全：只需輸入股票名稱（如「廣達」），系統自動透過 AI 查詢並填入股票代號。
+* 即時聯網落地 (Grounding)：整合 Google Search Tool，AI 自動檢索最新的即時股價、EPS、營收 YoY 與均線數據，拒絕幻覺。
+* Serverless 架構：前端使用 GAS，後端使用 Cloud Run，低成本且高擴充性。
+* 動態 Prompt 管理：策略邏輯儲存於 Google Doc，無需更動程式碼即可調整 AI 分析風格。
 
 ## 🏗️ 系統架構 (Architecture)
 
@@ -18,19 +16,19 @@ Serverless 架構：前端使用 GAS，後端使用 Cloud Run，低成本且高�
 
 ```mermaid
 graph TD
-    User[使用者] -->|輸入股票/成本| Sheet["Google Sheets (資料庫/UI)"]
+    User[使用者] -->|輸入股票/成本| Sheet["Google Sheets (UI)"]
     
     subgraph Frontend [Google Apps Script]
-        Menu[自訂選單] -->|觸發| Main[主控制器]
-        Main -->|1. 檢查代號| AutoFill[自動補全模組]
-        Main -->|2. 讀取 Prompt| Doc["Google Doc (Prompt)"]
-        Main -->|3. 發送請求| API_Call[UrlFetchApp]
-        API_Call -->|4. 接收回應| Formatter[HTML 渲染器]
-        Formatter -->|5. 寄信| Gmail[Gmail Service]
+        GAS[GAS Client] <-->|1. 登入換證| Firebase[Firebase Auth]
+        GAS -->|2. 攜帶 JWT Token| Gateway[GCP API Gateway]
     end
     
-    subgraph Backend [Google Cloud Run]
-        Flask[Flask Server] -->|身份驗證| Auth[Auth Layer]
+    subgraph Security Layer [Google Cloud Platform]
+        Gateway -->|3. 驗證 Token & 轉發| CloudRun[Cloud Run Service]
+    end
+    
+    subgraph Backend [Python Flask]
+        CloudRun -->|身份驗證| Auth[Secret Check]
         Auth -->|掛載工具| Tool[Google Search Tool]
         Tool -->|推理分析| Vertex["Vertex AI (Gemini 2.0)"]
     end
@@ -38,22 +36,19 @@ graph TD
     subgraph External [外部資源]
         Vertex <-->|聯網搜尋| GoogleSearch[Google Search Engine]
     end
-
-    Sheet <--> Frontend
-    Frontend <-->|HTTPS POST| Backend
 ```
 
 ## 🛠️ 技術棧 (Tech Stack)
 
 Frontend: Google Sheets, Google Apps Script (GAS)
 
+Security: Firebase Authentication, Google Cloud API Gateway
+
 Backend: Python 3.10+, Flask, Gunicorn
 
 AI Model: Gemini 2.0 Flash (via Vertex AI SDK)
 
 Hosting: Google Cloud Run (Region: us-central1)
-
-Tools: Google Search Grounding
 
 ## 📂 目錄結構 (Directory Structure)
 ```
@@ -63,148 +58,94 @@ Tools: Google Search Grounding
 │   ├── requirements.txt      # Python 依賴套件
 │   └── Procfile              # Cloud Run 啟動指令
 ├── gas/                      # Google Apps Script 前端代碼
-│   └── Code.gs               # GAS 主邏輯
+│   └── Code.gs               # GAS 主邏輯 (含 Firebase 登入模組)
 ├── prompt/                   # 策略提示詞備份
 │   └── system_prompt.txt     # (請將此內容複製到 Google Doc)
-└── cloudbuild.yaml           # CI/CD 部署設定 (GitHub Trigger)
+├── openapi2-run.yaml         # [新增] API Gateway 設定檔
+└── cloudbuild.yaml           # CI/CD 部署設定
 ```
 
 ## ⚙️ 部署教學 (Deployment)
 
 ### 步驟 1：部署後端 (Google Cloud Run)
 
-確認已安裝 Google Cloud SDK 並啟用專案。
+進入 backend 目錄並部署至 Cloud Run (需記下 URL，後續設定 Gateway 會用到)。
 
-建立 requirements.txt：
-
-flask
-gunicorn
-functions-framework
-python-dotenv
-google-genai
-google-cloud-aiplatform
-
-
-建立 Procfile：
-
-web: functions-framework --target=execute_gemini_task --port=8080
-
-
-進入後端目錄並部署 (關鍵步驟)：
-
-由於程式碼位於 backend 資料夾，請先進入該目錄：
-
+```
 cd backend
-
-
-接著部署至 Cloud Run (務必選擇 us-central1 以支援 Search Tool)：
-
 gcloud run deploy daily-gemini-task \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars GCP_PROJECT_ID=你的專案ID,MODEL_NAME=gemini-2.0-flash-001,API_SECRET=你的自訂密鑰
+  --set-env-vars GCP_PROJECT_ID=你的專案ID,MODEL_NAME=gemini-2.0-flash-001
+```
 
 
-記下 Cloud Run 產生的 URL (結尾通常是 .run.app)。
+### 步驟 2：建立安全層 (Gateway & Firebase)
 
-### 步驟 2：設定策略 Prompt
+* 啟用 API：啟用 API Gateway, Service Control, Service Management API。
 
-在 Google Drive 建立一個 Google Doc。
+* Firebase 設定：
+    * 在 Firebase Console 建立專案。
+    * 啟用 Authentication (Email/Password)。
+    * 建立一個測試用帳號 (Email/Password)。
+    * 取得 Web API Key。
 
-將 Prompt 內容 貼入檔案中。
+* 設定 Gateway：
+    * 修改 openapi2-run.yaml，填入 Project ID、Cloud Run URL、Firebase Issuer/Audience。
+    * 執行指令建立 API Config 與 Gateway。
 
-記下該 Google Doc 的 File ID (網址 d/ 後面那串)。
+### 步驟 3：封鎖後門 (Lockdown)
 
-### 步驟 3：設定前端 (Google Apps Script)
+Gateway 建立成功後，移除 Cloud Run 的公開存取權限，僅允許 Gateway 的 Service Account 呼叫。
 
-開啟 Google Sheet -> 擴充功能 -> Apps Script。
-
-複製 gas/Code.gs 的內容貼入編輯器。
-
-### 修改全域變數設定：
-
-const API_URL = "[https://你的-cloud-run-url.a.run.app/execute_gemini_task](https://你的-cloud-run-url.a.run.app/execute_gemini_task)";
-const API_KEY = "你的自訂密鑰"; // 需與 Python 環境變數一致
-const PROMPT_FILE_ID = "你的_Google_Doc_ID";
+### 步驟 4：設定策略 Prompt
+* 在 Google Drive 建立一個 Google Doc。
+* 將 prompt/system_prompt.txt 內容貼入檔案中。
+* 記下該 Google Doc 的 File ID (網址 d/ 後面那串)。
 
 
-儲存並重新整理 Google Sheet。
+
+### 步驟 5：設定前端 (Google Apps Script)
+
+```
+// ==========================================
+// 1. 全域設定區
+// ==========================================
+const GATEWAY_URL = "[https://你的-gateway-url.gateway.dev/task](https://你的-gateway-url.gateway.dev/task)"; // 注意：這是 Gateway 網址
+
+// Firebase 設定 (用於獲取 Token)
+const FIREBASE_API_KEY = "你的_Firebase_Web_API_Key";
+const FIREBASE_EMAIL = "test@example.com";
+const FIREBASE_PASSWORD = "你的密碼";
+const PROMPT_FILE_ID = "你的_Google_Doc_ID"; 
+```
 
 ## 📖 使用說明 (Usage)
 
 ### 1. 準備表格資料
 
-請確保 Google Sheet 的欄位順序如下：
+| 欄位   |   名稱      |  說明                       |
+| ----- | --------    | --------                    |
+| A2    | Email       | 接收報告的電子信箱            |
+| A5   | 狀態        | 狀態(程式會自動更新執行進度)   |
+| B     | 股票名稱     | 例如：廣達                   |
+| C     | 股票代號     | 可留空，系統自動補全          |
+| D     | 成本價       | 持有成本 (可選)              |
 
-欄位位置
-
-欄位名稱
-
-說明
-
-A2
-
-Email
-
-接收報告的電子信箱
-
-A5
-
-狀態
-
-程式會自動更新執行進度
-
-B 欄
-
-股票名稱
-
-輸入中文名稱 (例：廣達)
-
-C 欄
-
-股票代號
-
-留空即可，程式會自動補全
-
-D 欄
-
-成本價
-
-輸入持有成本 (若無則輸入 0 或空)
 
 ### 2. 執行功能
 
-#### 手動觸發
+點選上方選單 「Gemini AI」：
 
-點選 Google Sheet 上方出現的 「Gemini AI」 選單：
+* 自動填入股票代號：系統會自動登入 Firebase 取得 Token，通過 Gateway 查詢代號。
 
-1. 自動填入股票代號：掃描 B 欄，若 C 欄為空，自動呼叫 AI 查詢代號並填入。
+* 執行投資組合分析：觸發完整分析流程，產生 HTML 報告並寄信。
 
-2. 執行投資組合分析：讀取清單，進行聯網分析，並寄送 Email。
+### 3. 自動化排程
 
-#### 設定排程自動執行 (Automation)
+在 Apps Script 設定「時間驅動」觸發器 (例如每日上午 9 點)，即可每日定時自動執行分析。
 
-若希望每天定時收到分析報告，請在 Apps Script 中設定觸發條件：
-
-在 GAS 編輯器左側選單點擊 「觸發條件 (鬧鐘圖示)」。
-
-點擊右下角 「新增觸發條件」。
-
-設定如下：
-
-執行功能：analyzeAllSheets
-
-部署作業：前端 (Head)
-
-事件來源：時間驅動
-
-時間類型：日
-
-時間：選擇您希望執行時段 (例如：上午 8 點 到 9 點)
-
-儲存後，系統即會每日自動執行分析並寄信。
-
-📝 License
+## 📝 License
 
 This project is licensed under the MIT License.
