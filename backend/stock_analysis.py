@@ -9,18 +9,30 @@ def get_precise_data(ticker_symbol: str) -> dict:
     Args:
         ticker_symbol: 股票代號 (e.g. "2382" or "2330.TW")
     """
-    # 加上後綴 (台股加 .TW)
-    if not ticker_symbol.endswith('.TW') and ticker_symbol.isdigit():
-        ticker_symbol += '.TW'
+    # 定義內部函數來嘗試獲取數據
+    def fetch_data(symbol):
+        print(f"嘗試獲取 {symbol} 數據...")
+        s = yf.Ticker(symbol)
+        d = s.history(period="6mo")
+        return s, d
+
+    # 處理股票代號
+    target_symbol = ticker_symbol
     
-    print(f"正在獲取 {ticker_symbol} 精確數據...")
-    stock = yf.Ticker(ticker_symbol)
+    # 如果是純數字，先預設 .TW
+    if ticker_symbol.isdigit():
+        target_symbol = f"{ticker_symbol}.TW"
     
-    # 抓取足夠計算 60MA 的歷史資料 (抓 6 個月確保足夠)
-    df = stock.history(period="6mo")
+    stock, df = fetch_data(target_symbol)
+
+    # 如果抓不到資料 (且原本是純數字輸入)，嘗試切換成 .TWO (上櫃)
+    if len(df) < 60 and ticker_symbol.isdigit():
+        print(f"{target_symbol} 資料不足或不存在，嘗試切換為 .TWO...")
+        target_symbol = f"{ticker_symbol}.TWO"
+        stock, df = fetch_data(target_symbol)
     
     if len(df) < 60:
-        return "資料不足，無法計算 60MA"
+        return "資料不足，無法計算 60MA (可能為下市股票或代號錯誤)"
 
     # 計算均線
     df['MA20'] = df['Close'].rolling(window=20).mean()
@@ -71,5 +83,5 @@ def get_precise_data(ticker_symbol: str) -> dict:
 
 if __name__ == "__main__":
     # 使用範例：輸入股票代號
-    data = get_precise_data("2382")
+    data = get_precise_data("8299")
     print(json.dumps(data, indent=4, ensure_ascii=False))
