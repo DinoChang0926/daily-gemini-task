@@ -145,9 +145,9 @@ function processSheet(sheet, email, promptContent) {
         let userQuestion = "";
 
         if (cost && cost.toString() !== "") {
-          userQuestion = `我持有「${stockName} (${stockCode})」，我的成本均價在 ${cost}。請務必自行搜尋最新股價，並根據搜尋到的現價與我的成本位階，給出明確的操作策略 (包含停損停利點)。`;
+          userQuestion = `我持有「${stockName} (${stockCode})」，我的成本均價在 ${cost}。請根據現價與我的成本位階，給出明確的操作策略 (包含停損停利點)。`;
         } else {
-          userQuestion = `請分析「${stockName} (${stockCode})」，請務必自行搜尋最新股價，並進行技術面與基本面分析，給出短線操作建議。`;
+          userQuestion = `請分析「${stockName} (${stockCode})」，並進行技術面與基本面分析，給出短線操作建議。`;
         }
 
         console.log("Ask Gemini: " + userQuestion);
