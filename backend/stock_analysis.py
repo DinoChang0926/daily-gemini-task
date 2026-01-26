@@ -35,6 +35,14 @@ def get_precise_data(ticker_symbol: str) -> dict:
     recent_60_days = df.tail(60)
     high_60 = recent_60_days['High'].max()
     low_60 = recent_60_days['Low'].min()
+    
+    # 計算波浪關鍵點位 (Fibonacci Levels)
+    # 多頭回檔支撐 (從最高點回檔 0.618 或 0.5) -> 視為強力支撐區
+    range_delta = high_60 - low_60
+    support_price = round(high_60 - (range_delta * 0.618), 2)
+    
+    # 空頭反彈壓力 (從最低點反彈 0.382 或 0.5) -> 視為壓力區
+    resist_price = round(low_60 + (range_delta * 0.382), 2)
 
     # 輸出給 AI 的格式
     # 輸出給 AI 的格式 (JSON)
@@ -49,12 +57,14 @@ def get_precise_data(ticker_symbol: str) -> dict:
         "prev_ma60": round(float(prev['MA60']), 2),
         "high_60": round(float(high_60), 2),
         "low_60": round(float(low_60), 2),
+        "support_price": support_price, # 新增: 系統計算的支撐位
+        "resist_price": resist_price,   # 新增: 系統計算的壓力位
         "volume": int(latest['Volume']),
         "vol_ma5": int(latest['VolMA5'])
     }
     
     # print(json.dumps(output_data, indent=4, ensure_ascii=False))
-    print(f"已獲取 {ticker_symbol} 數據")
+    print(f"已獲取 {ticker_symbol} 數據 (Support: {support_price}, Resist: {resist_price})")
     print("-" * 30)
     
     return output_data
