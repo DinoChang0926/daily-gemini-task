@@ -1,1 +1,1 @@
-web: gunicorn --bind :8080 --workers 1 --threads 8 --timeout 0 main:app
+web: gunicorn --bind :8080 --workers 1 --threads 8 --timeout 120 --preload main:app

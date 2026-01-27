@@ -18,6 +18,36 @@ API_SECRET = os.environ.get("API_SECRET")
 
 app = Flask(__name__)
 
+# 綁定 Gunicorn Logger (確保 Cloud Run 能看到日誌)
+import logging
+gunicorn_logger = logging.getLogger('gunicorn.error')
+app.logger.handlers = gunicorn_logger.handlers
+app.logger.setLevel(gunicorn_logger.level)
+
+# 應用程式啟動時預熱快取
+print("Warming up stock cache...")
+try:
+    # 隨便查一個，觸發 cache 下載
+    get_ticker_by_name("台積電")
+    print("Stock cache warmed up successfully.")
+except Exception as e:
+    print(f"Warning: Cache warming failed: {e}")
+
+# 綁定 Gunicorn Logger (確保 Cloud Run 能看到日誌)
+import logging
+gunicorn_logger = logging.getLogger('gunicorn.error')
+app.logger.handlers = gunicorn_logger.handlers
+app.logger.setLevel(gunicorn_logger.level)
+
+# 應用程式啟動時預熱快取
+print("Warming up stock cache...")
+try:
+    # 隨便查一個，觸發 cache 下載
+    get_ticker_by_name("台積電")
+    print("Stock cache warmed up successfully.")
+except Exception as e:
+    print(f"Warning: Cache warming failed: {e}")
+
 def read_prompt_file():
     """
     讀取 prompt.txt
