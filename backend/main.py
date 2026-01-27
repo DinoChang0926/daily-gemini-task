@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from google.genai.types import GenerateContentConfig, Tool, GoogleSearch 
-from stock_analysis import get_precise_data  
+from stock_analysis import get_precise_data, get_60m_data
 from ticker_utils import get_ticker_by_name
 
 # 1. 載入環境變數
@@ -27,22 +27,6 @@ app.logger.setLevel(gunicorn_logger.level)
 # 應用程式啟動時預熱快取
 print("Warming up stock cache...")
 try:
-    # 隨便查一個，觸發 cache 下載
-    get_ticker_by_name("台積電")
-    print("Stock cache warmed up successfully.")
-except Exception as e:
-    print(f"Warning: Cache warming failed: {e}")
-
-# 綁定 Gunicorn Logger (確保 Cloud Run 能看到日誌)
-import logging
-gunicorn_logger = logging.getLogger('gunicorn.error')
-app.logger.handlers = gunicorn_logger.handlers
-app.logger.setLevel(gunicorn_logger.level)
-
-# 應用程式啟動時預熱快取
-print("Warming up stock cache...")
-try:
-    # 隨便查一個，觸發 cache 下載
     get_ticker_by_name("台積電")
     print("Stock cache warmed up successfully.")
 except Exception as e:
@@ -108,9 +92,19 @@ def execute_task():
             ticker = match.group(1)
             print(f"Detected Ticker: {ticker}, fetching data...")
             try:
-                data_json = get_precise_data(ticker)
-                stock_context = f"\n\n[系統自動獲取的即時股市數據]\n```json\n{json.dumps(data_json, ensure_ascii=False, indent=2)}\n```\n請根據上述數據進行分析。"
-                print("Stock data injected successfully.")
+                # 1. 獲取日線數據
+                daily_data = get_precise_data(ticker)
+                
+                # 2. 獲取 60分K 數據 (含金包銀策略)
+                m60_data = get_60m_data(ticker)
+                
+                # 組合上下文
+                stock_context = f"\n\n[系統自動獲取數據]\n"
+                stock_context += f"- 日線分析: \n```json\n{json.dumps(daily_data, ensure_ascii=False, indent=2)}\n```\n"
+                stock_context += f"- 60分鐘線(金包銀策略): \n```json\n{json.dumps(m60_data, ensure_ascii=False, indent=2)}\n```\n"
+                stock_context += "\n請根據上述數據，特別是 60分K 的「金包銀」形態（若有）進行深度技術分析。"
+                
+                print("Daily and 60m stock data injected successfully.")
             except Exception as e:
                 print(f"Warning: Failed to fetch stock data: {e}")
         
