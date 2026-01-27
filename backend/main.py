@@ -8,6 +8,7 @@ from google.genai import types
 from dotenv import load_dotenv
 from google.genai.types import GenerateContentConfig, Tool, GoogleSearch 
 from stock_analysis import get_precise_data  
+from ticker_utils import get_ticker_by_name
 
 # 1. 載入環境變數
 load_dotenv(override=True)
@@ -52,6 +53,25 @@ def get_stock_data(request):
         stock_info = get_precise_data(ticker)
         
         return jsonify(stock_info)
+    except Exception as e:
+         return jsonify({"error": str(e)}), 500
+
+@functions_framework.http
+def get_ticker_code(request):
+    """
+    透過股票名稱查詢代碼的 API 端點
+    Method: POST
+    Payload: { "name": "台積電" }
+    """
+    try:
+        data = request.get_json(silent=True)
+        if not data or "name" not in data:
+            return jsonify({"error": "Missing 'name' in payload"}), 400
+            
+        name = data.get("name", "")
+        ticker = get_ticker_by_name(name)
+        
+        return jsonify({"name": name, "ticker": ticker})
     except Exception as e:
          return jsonify({"error": str(e)}), 500
 
@@ -185,4 +205,16 @@ if __name__ == "__main__":
         except:
             print(result)
     
+    print("\n[測試 3] 測試 get_ticker_code API:")
+    class MockTickerRequest:
+        def get_json(self, silent=True):
+            return {"name": "廣達"}
+            
+    with app.app_context():
+        ticker_result = get_ticker_code(MockTickerRequest())
+        try:
+             print(ticker_result.get_data(as_text=True))
+        except:
+             print(ticker_result)
+
     print("\n=== 測試結束 ===")

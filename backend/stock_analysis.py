@@ -83,5 +83,5 @@ def get_precise_data(ticker_symbol: str) -> dict:
 
 if __name__ == "__main__":
     # 使用範例：輸入股票代號
-    data = get_precise_data("8299")
+    data = get_precise_data("3264.TWO")
     print(json.dumps(data, indent=4, ensure_ascii=False))

@@ -6,3 +6,4 @@ google-genai
 google-cloud-aiplatform
 yfinance
 pandas
+FinMind
