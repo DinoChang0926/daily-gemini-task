@@ -1,1 +1,1 @@
-web: functions-framework --target=execute_gemini_task --port=8080
+web: gunicorn --bind :8080 --workers 1 --threads 8 --timeout 0 main:app

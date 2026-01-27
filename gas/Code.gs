@@ -1,7 +1,7 @@
 // ==========================================
 // 1. 全域設定區 (請務必填寫)
 // ==========================================
-const GATEWAY_URL = ";
+const GATEWAY_URL = "https://daily-gemini-task-gateway-y87h38t.us-central1.gateway.dev"; 
 const API_URL = "";
 const PROMPT_FILE_ID = ""; // google doc
 const FIREBASE_API_KEY = ""; // 填入 Web API Key
@@ -41,8 +41,8 @@ function autoFillTickers() {
       try {
         console.log(`正在查詢代號: ${name}`);
         // 這裡會自動呼叫新的 callGemini (包含 Token)
-        const result = callGemini(`請提供台灣股市「${name}」的股票代號。只輸出4位數字，不要有文字。`, "Output ONLY the 4-digit ticker.");
-        const cleanCode = result.toString().replace(/[^\d]/g, '');
+        const result = queryStockCode(name);
+        const cleanCode = result.toString().split('.')[0]; 
 
         if (cleanCode.length >= 4) {
           updates.push([cleanCode]);
@@ -127,9 +127,8 @@ function processSheet(sheet, email, promptContent) {
         if (!stockCode || stockCode.toString().trim() === "") {
           try {
             console.log(`發現 ${stockName} 缺代號，正在自動查詢...`);
-            const tickerPrompt = `請提供台灣股市「${stockName}」的股票代號。只輸出4位數字，不要有其他文字。`;
-            const result = callGemini(tickerPrompt, "Output ONLY the 4-digit ticker.");
-            const cleanCode = result.toString().replace(/[^\d]/g, '');
+            const result = queryStockCode(stockName);
+            const cleanCode = result.toString().split('.')[0]; 
 
             if (cleanCode.length >= 4) {
               stockCode = cleanCode; 
@@ -225,9 +224,9 @@ function getFirebaseToken() {
 }
 
 /**
- * 呼叫 API Gateway (現在會帶上 Token)
+ * 核心 API 呼叫工具 (包含重試機制)
  */
-function callGemini(text, systemPrompt) {
+function callApi(path, payload, systemPrompt) {
   // 1. 先取得 Token
   let token;
   try {
@@ -236,13 +235,11 @@ function callGemini(text, systemPrompt) {
     throw new Error("無法取得授權 Token: " + e.message);
   }
 
-  // 2. 準備 Payload (移除了 secret，改用 Header 驗證)
-  const payload = { 
-    "question": text, 
-    "system_prompt": systemPrompt 
-  };
+  // 如果有 systemPrompt，注入到 payload
+  if (systemPrompt) {
+    payload["system_prompt"] = systemPrompt;
+  }
   
-  // 3. 設定 Header (關鍵步驟)
   const options = { 
     "method": "post", 
     "contentType": "application/json", 
@@ -253,16 +250,57 @@ function callGemini(text, systemPrompt) {
     "muteHttpExceptions": true 
   };
 
-  // 4. 發送請求
-  const response = UrlFetchApp.fetch(GATEWAY_URL, options);
-  
-  if (response.getResponseCode() === 200) {
-    return JSON.parse(response.getContentText()).answer;
-  } else if (response.getResponseCode() === 401) {
-    throw new Error("401 Unauthorized: Token 無效或 Gateway 拒絕存取");
-  } else {
-    throw new Error(`API Error ${response.getResponseCode()}: ${response.getContentText()}`);
+  const maxRetries = 3;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = UrlFetchApp.fetch(GATEWAY_URL + path, options);
+      const responseCode = response.getResponseCode();
+      const content = response.getContentText();
+
+      if (responseCode === 200) {
+        return JSON.parse(content);
+      } else if (responseCode === 504 || responseCode === 502) {
+        // 遇到 Gateway Timeout 或 Bad Gateway 進行重試
+        console.warn(`第 ${attempt} 次嘗試失敗 (${responseCode})，正在重試...`);
+        lastError = `API Error ${responseCode}: ${content}`;
+        if (attempt < maxRetries) {
+          Utilities.sleep(Math.pow(2, attempt) * 1000); // 指數退避
+          continue;
+        }
+      } else if (responseCode === 401) {
+        throw new Error("401 Unauthorized: Token 無效或 Gateway 拒絕存取");
+      } else {
+        throw new Error(`API Error ${responseCode}: ${content}`);
+      }
+    } catch (e) {
+      lastError = e.message;
+      if (attempt < maxRetries) {
+        console.warn(`第 ${attempt} 次連線失敗，正在重試: ${e.message}`);
+        Utilities.sleep(2000);
+        continue;
+      }
+    }
   }
+
+  throw new Error(`${lastError} (已重試 ${maxRetries} 次後放棄)`);
+}
+
+/**
+ * 舊版相容性包裝
+ */
+function callGemini(text, systemPrompt) {
+  const result = callApi("/task", { "question": text }, systemPrompt);
+  return result.answer;
+}
+
+/**
+ * 查詢股票代號
+ */
+function queryStockCode(name) {
+  const result = callApi("/ticker", { "name": name });
+  return result.ticker;
 }
 
 function formatMarkdown(text) {

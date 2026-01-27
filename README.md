@@ -5,64 +5,48 @@
 ## 🚀 核心功能 (Key Features)
 
 * 企業級資安 (Enterprise Security)：導入 Firebase Auth 與 API Gateway，徹底封鎖後端 IP，僅允許持有有效 Token 的流量進入。
-* 自動化代號補全：只需輸入股票名稱（如「廣達」），系統自動透過 AI 查詢並填入股票代號。
-* 即時聯網落地 (Grounding)：整合 Google Search Tool，AI 自動檢索最新的即時股價、EPS、營收 YoY 與均線數據，拒絕幻覺。
-* Serverless 架構：前端使用 GAS，後端使用 Cloud Run，低成本且高擴充性。
-* 動態 Prompt 管理：策略邏輯儲存於 Google Doc，無需更動程式碼即可調整 AI 分析風格。
+* 自動化代號補全：支援透過中文名稱精確查詢股票代號（串接 FinMind API），不再依賴 AI 猜測。
+* API 重試機制：前端 GAS 加入指數退避重試邏輯，有效處理 504 Gateway Timeout 錯誤。
+* 即時聯網落地 (Grounding)：整合 Google Search Tool，AI 自動檢索最新的即時股價、EPS、營收 YoY 與均線數據。
+* Serverless 架構：前端使用 GAS，後端使用 Cloud Run 執行的 Flask App。
 
 ## 🏗️ 系統架構 (Architecture)
-
-本專案採用前後端分離架構，利用 Google 生態系優勢進行串接。
 
 ```mermaid
 graph TD
     User[使用者] -->|輸入股票/成本| Sheet["Google Sheets (UI)"]
     
     subgraph Frontend [Google Apps Script]
-        GAS[GAS Client] <-->|1. 登入換證| Firebase[Firebase Auth]
-        GAS -->|2. 攜帶 JWT Token| Gateway[GCP API Gateway]
+        GAS[GAS Client] -->|重試機制 & Path 路由| Gateway
+        GAS <-->|登入換證| Firebase[Firebase Auth]
     end
     
     subgraph Security Layer [Google Cloud Platform]
-        Gateway -->|3. 驗證 Token & 轉發| CloudRun[Cloud Run Service]
+        Gateway[GCP API Gateway] -->|驗證 & 轉發| CloudRun[Cloud Run Service]
     end
     
     subgraph Backend [Python Flask]
-        CloudRun -->|身份驗證| Auth[Secret Check]
-        Auth -->|掛載工具| Tool[Google Search Tool]
-        Tool -->|推理分析| Vertex["Vertex AI (Gemini 2.0)"]
-    end
-    
-    subgraph External [外部資源]
-        Vertex <-->|聯網搜尋| GoogleSearch[Google Search Engine]
+        CloudRun --> Flask{Flask App}
+        Flask -->|/task| GeminiTask[分析任務]
+        Flask -->|/ticker| TickerLookup[代號查詢]
+        GeminiTask -->|Tools| GoogleSearch[Google Search]
+        GeminiTask -->|LLM| VertexAI[Gemini 2.0 Flash]
     end
 ```
-
-## 🛠️ 技術棧 (Tech Stack)
-
-Frontend: Google Sheets, Google Apps Script (GAS)
-
-Security: Firebase Authentication, Google Cloud API Gateway
-
-Backend: Python 3.10+, Flask, Gunicorn
-
-AI Model: Gemini 2.0 Flash (via Vertex AI SDK)
-
-Hosting: Google Cloud Run (Region: us-central1)
 
 ## 📂 目錄結構 (Directory Structure)
 ```
 .
-├── backend/                  # Python 後端程式碼
-│   ├── main.py               # Flask 主程式 (含 Gemini 呼叫邏輯)
-│   ├── requirements.txt      # Python 依賴套件
-│   └── Procfile              # Cloud Run 啟動指令
+├── backend/                  # Python 後端程式碼 (Flask App)
+│   ├── main.py               # Flask 主路由與 API 邏輯
+│   ├── ticker_utils.py       # [新增] 股票代號查詢工具 (FinMind)
+│   ├── stock_analysis.py     # YFinance 數值分析邏輯
+│   ├── requirements.txt      # 依賴套件 (新增 FinMind)
+│   └── Procfile              # [更新] Gunicorn 啟動設定
 ├── gas/                      # Google Apps Script 前端代碼
-│   └── Code.gs               # GAS 主邏輯 (含 Firebase 登入模組)
+│   └── Code.gs               # [更新] 具備重試機制與多路徑呼叫邏輯
 ├── prompt/                   # 策略提示詞備份
-│   └── system_prompt.txt     # (請將此內容複製到 Google Doc)
-├── openapi2-run.yaml         # [新增] API Gateway 設定檔
-└── cloudbuild.yaml           # CI/CD 部署設定
+└── openapi2-run.yaml         # API Gateway 設定檔
 ```
 
 ## ⚙️ 部署教學 (Deployment)
