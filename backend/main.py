@@ -99,6 +99,7 @@ def execute_task():
         final_user_input = user_question + stock_context
 
         # 4. 初始化 Client
+        print(f"Initializing Gemini Client for question: {user_question[:30]}...")
         client = genai.Client(
             vertexai=True, 
             project=PROJECT_ID,
@@ -110,6 +111,7 @@ def execute_task():
         )
 
         # 6. 呼叫 Gemini
+        print("Waiting for Gemini response (with Google Search)...")
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=final_user_input,
@@ -119,6 +121,7 @@ def execute_task():
                 temperature=0.3,
             )
         )
+        print("Gemini response received.")
 
         return jsonify({"answer": response.text})
 

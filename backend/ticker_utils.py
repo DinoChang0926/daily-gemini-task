@@ -1,6 +1,9 @@
 from FinMind.data import DataLoader
 import pandas as pd
 
+# 全域變數，用於快取股票清單
+CACHED_STOCK_INFO = None
+
 def get_ticker_by_name(name: str) -> str:
     """
     透過中文名稱取得台股股票代號。
@@ -11,10 +14,16 @@ def get_ticker_by_name(name: str) -> str:
     Returns:
         股票代碼 (格式: "2330.TW" 或 "8299.TWO")，若找不到則回傳錯誤訊息。
     """
+    global CACHED_STOCK_INFO
     try:
-        dl = DataLoader()
-        # 獲取所有上市上櫃股票列表
-        df = dl.taiwan_stock_info() 
+        # 如果快取為空，才進行下載
+        if CACHED_STOCK_INFO is None:
+            print("正在從 FinMind 下載全台股清單 (Cache Initializing)...")
+            dl = DataLoader()
+            CACHED_STOCK_INFO = dl.taiwan_stock_info()
+            print(f"清單下載完成，共 {len(CACHED_STOCK_INFO)} 筆資料。")
+        
+        df = CACHED_STOCK_INFO
         
         # 過濾名稱 (精確比對)
         match = df[df['stock_name'] == name]
@@ -28,6 +37,8 @@ def get_ticker_by_name(name: str) -> str:
             
         return "【資料不足，無法確認】"
     except Exception as e:
+        # 如果出錯，清除快取以便下次重試
+        CACHED_STOCK_INFO = None
         return f"【查詢發生錯誤: {str(e)}】"
 
 if __name__ == "__main__":

@@ -32,8 +32,9 @@ paths:
       x-google-backend:
         # 你的真實後端地址 (us-central1)
         address: "https://daily-gemini-task-986464863025.us-central1.run.app"
+        # 增加超時時間，處理長耗時 AI 分析
+        deadline: 60.0
         # APPEND_PATH_TO_ADDRESS 會將路徑後綴接在 address 後面
-        # Gateway "/" -> Backend "/"
         path_translation: APPEND_PATH_TO_ADDRESS
       security:
         - firebase: []
