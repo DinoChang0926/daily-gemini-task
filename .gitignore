@@ -3,3 +3,6 @@ __pycache__/
 .vscode/settings.json
 prompt/prompt.txt
 test.json
+backend/data_modules/futures_mapping_static.json
+backend/data_modules/cb_mapping_dynamic.json
+backend/scripts/cb_download.log

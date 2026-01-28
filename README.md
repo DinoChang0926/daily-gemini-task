@@ -9,6 +9,9 @@
 * API 重試機制：前端 GAS 加入指數退避重試邏輯，有效處理 504 Gateway Timeout 錯誤。
 * 即時聯網落地 (Grounding)：整合 Google Search Tool，AI 自動檢索最新的即時股價、EPS、營收 YoY 與均線數據。
 * Serverless 架構：前端使用 GAS，後端使用 Cloud Run 執行的 Flask App。
+* 籌碼追蹤 (Chips)：自動抓取台股每日投信買賣超與融資餘額變化。
+* 期貨對應 (Futures)：內建智能映射機制，自動將股票代號轉換為對應的主力期貨合約，並支援自動爬蟲修復。
+* 可轉債分析 (Convertible Bonds)：整合櫃買中心資訊，自動計算可轉債乖離率，並透過每日下載機制保持資料最新。
 
 ## 🏗️ 系統架構 (Architecture)
 
@@ -39,10 +42,19 @@ graph TD
 .
 ├── backend/                  # Python 後端程式碼 (Flask App)
 │   ├── main.py               # Flask 主路由與 API 邏輯
-│   ├── ticker_utils.py       # [新增] 股票代號查詢工具 (FinMind)
-│   ├── stock_analysis.py     # YFinance 數值分析邏輯
-│   ├── requirements.txt      # 依賴套件 (新增 FinMind)
-│   └── Procfile              # [更新] Gunicorn 啟動設定
+│   ├── data_modules/         # [新增] 市場數據模組
+│   │   ├── chips.py          # 籌碼面 (TWSE T86/融資)
+│   │   ├── futures.py        # 期貨行情 (自動映射主力合約)
+│   │   ├── cb.py             # 可轉債資訊 (含每日自動更新對照表)
+│   │   └── futures_mapping.py# 期貨代號映射邏輯
+│   ├── utils/                # [新增] 通用工具模組
+│   │   ├── ticker_utils.py   # 股票代號查詢工具 (FinMind)
+│   │   └── stock_analysis.py # YFinance 數值分析邏輯
+│   ├── scripts/              # [新增] 維護腳本
+│   │   ├── update_cb_mapping.py      # 可轉債對照表更新腳本
+│   │   └── update_futures_mapping.py # 期貨對照表更新腳本
+│   ├── requirements.txt      # 依賴套件 (新增 openpyxl 等)
+│   └── Procfile              # Gunicorn 啟動設定
 ├── gas/                      # Google Apps Script 前端代碼
 │   └── Code.gs               # [更新] 具備重試機制與多路徑呼叫邏輯
 ├── prompt/                   # 策略提示詞備份

@@ -6,8 +6,8 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from google.genai.types import GenerateContentConfig, Tool, GoogleSearch 
-from stock_analysis import get_precise_data, get_60m_data
-from ticker_utils import get_ticker_by_name
+from utils.stock_analysis import get_precise_data, get_60m_data
+from utils.ticker_utils import get_ticker_by_name
 
 # 1. 載入環境變數
 load_dotenv(override=True)

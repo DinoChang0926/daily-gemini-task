@@ -8,3 +8,10 @@ yfinance
 pandas
 FinMind
 tqdm
+pytest
+pytest-mock
+requests
+beautifulsoup4
+lxml
+odfpy
+openpyxl
