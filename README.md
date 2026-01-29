@@ -31,9 +31,12 @@ graph TD
     subgraph Backend [Python Flask]
         CloudRun --> Flask{Flask App}
         Flask -->|/task| GeminiTask[分析任務]
+        Flask -->|Aggregation| DataModules[數據模組]
+        DataModules -->|TWSE| Chips[籌碼 T86/融資]
+        DataModules -->|OTC/Files| CB[可轉債/期貨]
         Flask -->|/ticker| TickerLookup[代號查詢]
+        GeminiTask -->|Combined Context| VertexAI[Gemini 2.0 Flash]
         GeminiTask -->|Tools| GoogleSearch[Google Search]
-        GeminiTask -->|LLM| VertexAI[Gemini 2.0 Flash]
     end
 ```
 
@@ -65,7 +68,8 @@ graph TD
 
 ### 步驟 1：部署後端 (Google Cloud Run)
 
-進入 backend 目錄並部署至 Cloud Run (需記下 URL，後續設定 Gateway 會用到)。
+進入 backend 目錄並部署至 Cloud Run。
+**注意**: 本專案的 `Procfile` 已將 Gunicorn timeout 設定為 300 秒，以支援長時間的 AI 分析與數據爬取。
 
 ```
 cd backend
@@ -95,10 +99,11 @@ gcloud run deploy daily-gemini-task \
 
 Gateway 建立成功後，移除 Cloud Run 的公開存取權限，僅允許 Gateway 的 Service Account 呼叫。
 
-### 步驟 4：設定策略 Prompt
-* 在 Google Drive 建立一個 Google Doc。
-* 將 prompt/system_prompt.txt 內容貼入檔案中。
-* 記下該 Google Doc 的 File ID (網址 d/ 後面那串)。
+### 步驟 4：設定策略 Prompt (可選)
+系統後端已內建最佳化的策略提示詞 (`prompt/prompt.txt`)，整合了技術面、籌碼面與可轉債分析邏輯。
+* **推薦**: 直接使用內建 Prompt，無需額外設定。
+* **進階**: 若需客製化，可在 Google Drive 建立 Google Doc，將 Prompt 貼入，並在前端 GAS 設定 `PROMPT_FILE_ID`。
+
 
 
 
@@ -108,13 +113,13 @@ Gateway 建立成功後，移除 Cloud Run 的公開存取權限，僅允許 Gat
 // ==========================================
 // 1. 全域設定區
 // ==========================================
-const GATEWAY_URL = "[https://你的-gateway-url.gateway.dev/task](https://你的-gateway-url.gateway.dev/task)"; // 注意：這是 Gateway 網址
+const GATEWAY_URL = "https://你的-gateway-url.gateway.dev/task"; // 注意：這是 Gateway 網址
 
 // Firebase 設定 (用於獲取 Token)
 const FIREBASE_API_KEY = "你的_Firebase_Web_API_Key";
 const FIREBASE_EMAIL = "test@example.com";
 const FIREBASE_PASSWORD = "你的密碼";
-const PROMPT_FILE_ID = "你的_Google_Doc_ID"; 
+const PROMPT_FILE_ID = ""; // 留空則使用後端內建的最佳化 Prompt (推薦) 
 ```
 
 ## 📖 使用說明 (Usage)

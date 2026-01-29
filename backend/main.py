@@ -1,6 +1,7 @@
 import os
 import re
 import json
+from datetime import datetime
 from flask import Flask, request, jsonify
 from google import genai
 from google.genai import types
@@ -8,6 +9,8 @@ from dotenv import load_dotenv
 from google.genai.types import GenerateContentConfig, Tool, GoogleSearch 
 from utils.stock_analysis import get_precise_data, get_60m_data
 from utils.ticker_utils import get_ticker_by_name
+from data_modules.chips import get_twse_chips
+from data_modules.cb import get_cb_info
 
 # 1. 載入環境變數
 load_dotenv(override=True)
@@ -98,13 +101,45 @@ def execute_task():
                 # 2. 獲取 60分K 數據 (含金包銀策略)
                 m60_data = get_60m_data(ticker)
                 
+                # 3. 獲取籌碼數據 (需要日期格式 YYYYMMDD)
+                chips_data = None
+                if isinstance(daily_data, dict) and "date" in daily_data:
+                    try:
+                        # 解析日期格式 (可能是 YYYY-MM-DD HH:MM 或其他格式)
+                        date_str = daily_data["date"].split()[0]  # 取日期部分
+                        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                        chips_date = date_obj.strftime("%Y%m%d")
+                        chips_data = get_twse_chips(chips_date, ticker)
+                        print(f"Chips data fetched for {ticker} on {chips_date}")
+                    except Exception as chip_err:
+                        print(f"Warning: Failed to fetch chips data: {chip_err}")
+                
+                # 4. 獲取可轉債數據 (需要現價)
+                cb_data = None
+                if isinstance(daily_data, dict) and "close" in daily_data:
+                    try:
+                        current_price = daily_data["close"]
+                        cb_data = get_cb_info(ticker, current_price)
+                        print(f"CB data fetched for {ticker} with price {current_price}")
+                    except Exception as cb_err:
+                        print(f"Warning: Failed to fetch CB data: {cb_err}")
+                
                 # 組合上下文
                 stock_context = f"\n\n[系統自動獲取數據]\n"
                 stock_context += f"- 日線分析: \n```json\n{json.dumps(daily_data, ensure_ascii=False, indent=2)}\n```\n"
                 stock_context += f"- 60分鐘線(金包銀策略): \n```json\n{json.dumps(m60_data, ensure_ascii=False, indent=2)}\n```\n"
-                stock_context += "\n請根據上述數據，特別是 60分K 的「金包銀」形態（若有）進行深度技術分析。"
                 
-                print("Daily and 60m stock data injected successfully.")
+                # 加入籌碼數據
+                if chips_data:
+                    stock_context += f"- 籌碼數據: \n```json\n{json.dumps(chips_data, ensure_ascii=False, indent=2)}\n```\n"
+                
+                # 加入可轉債數據
+                if cb_data:
+                    stock_context += f"- 可轉債數據: \n```json\n{json.dumps(cb_data, ensure_ascii=False, indent=2)}\n```\n"
+                
+                stock_context += "\n請根據上述數據，特別是 60分K 的「金包銀」形態、籌碼面與可轉債狀況（若有）進行深度技術分析。"
+                
+                print("Daily, 60m, Chips and CB stock data injected successfully.")
             except Exception as e:
                 print(f"Warning: Failed to fetch stock data: {e}")
         
