@@ -9,7 +9,7 @@
 * API 重試機制：前端 GAS 加入指數退避重試邏輯，有效處理 504 Gateway Timeout 錯誤。
 * 即時聯網落地 (Grounding)：整合 Google Search Tool，AI 自動檢索最新的即時股價、EPS、營收 YoY 與均線數據。
 * Serverless 架構：前端使用 GAS，後端使用 Cloud Run 執行的 Flask App。
-* 籌碼追蹤 (Chips)：自動抓取台股每日投信買賣超與融資餘額變化。
+* 進階技術分析 (Advanced Algo)：內建「關鍵大量 K 線 (Banker's Stick)」與「量能濾網」，自動判讀主力防守線與假跌破訊號。
 * 期貨對應 (Futures)：內建智能映射機制，自動將股票代號轉換為對應的主力期貨合約，並支援自動爬蟲修復。
 * 可轉債分析 (Convertible Bonds)：整合櫃買中心資訊，自動計算可轉債乖離率，並透過每日下載機制保持資料最新。
 
@@ -32,7 +32,6 @@ graph TD
         CloudRun --> Flask{Flask App}
         Flask -->|/task| GeminiTask[分析任務]
         Flask -->|Aggregation| DataModules[數據模組]
-        DataModules -->|TWSE| Chips[籌碼 T86/融資]
         DataModules -->|OTC/Files| CB[可轉債/期貨]
         Flask -->|/ticker| TickerLookup[代號查詢]
         GeminiTask -->|Combined Context| VertexAI[Gemini 2.0 Flash]
@@ -46,13 +45,12 @@ graph TD
 ├── backend/                  # Python 後端程式碼 (Flask App)
 │   ├── main.py               # Flask 主路由與 API 邏輯
 │   ├── data_modules/         # [新增] 市場數據模組
-│   │   ├── chips.py          # 籌碼面 (TWSE T86/融資)
 │   │   ├── futures.py        # 期貨行情 (自動映射主力合約)
 │   │   ├── cb.py             # 可轉債資訊 (含每日自動更新對照表)
 │   │   └── futures_mapping.py# 期貨代號映射邏輯
 │   ├── utils/                # [新增] 通用工具模組
 │   │   ├── ticker_utils.py   # 股票代號查詢工具 (FinMind)
-│   │   └── stock_analysis.py # YFinance 數值分析邏輯
+│   │   └── stock_analysis.py # YFinance 數值分析邏輯 (含進階演算法)
 │   ├── scripts/              # [新增] 維護腳本
 │   │   ├── update_cb_mapping.py      # 可轉債對照表更新腳本
 │   │   └── update_futures_mapping.py # 期貨對照表更新腳本
@@ -100,7 +98,7 @@ gcloud run deploy daily-gemini-task \
 Gateway 建立成功後，移除 Cloud Run 的公開存取權限，僅允許 Gateway 的 Service Account 呼叫。
 
 ### 步驟 4：設定策略 Prompt (可選)
-系統後端已內建最佳化的策略提示詞 (`prompt/prompt.txt`)，整合了技術面、籌碼面與可轉債分析邏輯。
+系統後端已內建最佳化的策略提示詞 (`prompt/prompt.txt`)，整合了技術面、進階演算法(主力/量能)與可轉債分析邏輯。
 * **推薦**: 直接使用內建 Prompt，無需額外設定。
 * **進階**: 若需客製化，可在 Google Drive 建立 Google Doc，將 Prompt 貼入，並在前端 GAS 設定 `PROMPT_FILE_ID`。
 

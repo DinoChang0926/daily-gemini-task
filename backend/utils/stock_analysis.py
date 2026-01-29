@@ -120,29 +120,98 @@ def analyze_stock(ticker_symbol: str, interval: str = "1d") -> dict:
     latest = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # 區間極值
-    recent_60_bars = df.tail(60)
-    high_60 = recent_60_bars['High'].max()
-    low_60 = recent_60_bars['Low'].min()
+    # --- 演算法優化: 支撐與壓力邏輯 (Refactored) ---
+    recent_60 = df.tail(60)
+    high_60 = recent_60['High'].max()
+    low_60 = recent_60['Low'].min()
     
-    # Fibonacci
-    range_delta = high_60 - low_60
-    support_price = round(high_60 - (range_delta * 0.618), 2)
-    resist_price = round(low_60 + (range_delta * 0.382), 2)
+    curr_price = float(latest['Close'])
+    ma20_val = float(latest['MA20'])
+    ma20_prev = float(prev['MA20'])
+    
+    # 1. 尋找「關鍵大量 K 線」 (Banker's Candle)
+    # 定義: 近 20 日內，成交量最大且收紅 (Close > Open) 的 K 線
+    recent_20 = df.tail(20).copy()
+    recent_20['IsRed'] = recent_20['Close'] > recent_20['Open']
+    red_candles = recent_20[recent_20['IsRed']]
+    
+    smart_money_support = None
+    if not red_candles.empty:
+        # 找成交量最大的一根
+        banker_candle = red_candles.loc[red_candles['Volume'].idxmax()]
+        smart_money_support = float(banker_candle['Low'])
+    
+    # 2. 支撐邏輯 (Support)
+    # 預設找區間低點
+    support_price = low_60
+    support_type = "60d_low"
+    
+    # 強勢股判斷: 股價 > 月線 且 月線翻揚
+    if curr_price > ma20_val and ma20_val > ma20_prev:
+        # 多頭強勢回檔策略 (Hybrid Decision)
+        if smart_money_support:
+            # 取 月線 與 關鍵大量低點 的最大值 (擇強而守)
+            if smart_money_support > ma20_val:
+                support_price = smart_money_support
+                support_type = "smart_money_low"
+            else:
+                support_price = ma20_val
+                support_type = "ma20"
+        else:
+            support_price = ma20_val
+            support_type = "ma20"
+        
+    # 3. 壓力邏輯 (Resistance)
+    # 預設找區間高點
+    resist_price = high_60
+    resist_type = "60d_high"
+    
+    # 創新高判斷: 若收盤價已接近或突破 60日高點
+    if curr_price >= high_60 * 0.99:
+        resist_price = curr_price * 1.1 # 預設漲停板價作為目標
+        resist_type = "blue_sky"
+
+    # 4. 防呆檢查 (Sanity Check)
+    # 防止支撐壓力過近或倒掛
+    if resist_price <= support_price * 1.01:
+        # 強制拉開空間
+        resist_price = max(resist_price, support_price * 1.05)
+        if support_price > curr_price * 0.95:
+             support_price = support_price * 0.95
+
+    # 5. 量能濾網 (Volume Filter for Breakdown)
+    breakdown_signal = "NONE"
+    if curr_price < support_price:
+        vol_ma5 = float(latest['VolMA5'])
+        curr_vol = float(latest['Volume'])
+        if vol_ma5 > 0:
+            vol_ratio = curr_vol / vol_ma5
+            if vol_ratio > 1.5:
+                breakdown_signal = "TRUE_BREAKDOWN" # 帶量真跌破
+            elif vol_ratio < 1.0:
+                breakdown_signal = "WASH_SALE" # 量縮假跌破
+            else:
+                breakdown_signal = "BREAKDOWN" # 一般跌破
 
     output_data = {
         "stock_id": target_symbol,
         "date": latest.name.strftime('%Y-%m-%d %H:%M'),
         "interval": interval,
-        "close": round(float(latest['Close']), 2),
+        "close": round(curr_price, 2),
         "ma5": round(float(latest['MA5']), 2) if not pd.isna(latest['MA5']) else None,
         "ma10": round(float(latest['MA10']), 2) if not pd.isna(latest['MA10']) else None,
-        "ma20": round(float(latest['MA20']), 2),
+        "ma20": round(ma20_val, 2),
         "ma60": round(float(latest['MA60']), 2),
         "ma120": round(float(latest['MA120']), 2) if not pd.isna(latest['MA120']) else None,
         "ma240": round(float(latest['MA240']), 2) if not pd.isna(latest['MA240']) else None,
-        "support_price": support_price,
-        "resist_price": resist_price,
+        "support_price": round(float(support_price), 2),
+        "resist_price": round(float(resist_price), 2),
+        "support_type": support_type,
+        "resist_type": resist_type,
+        "smart_money_support": round(smart_money_support, 2) if smart_money_support else None,
+        "breakdown_signal": breakdown_signal,
+        "short_term_support": round(float(latest['MA5']), 2) if not pd.isna(latest['MA5']) else None,
+        "trend_support": round(ma20_val, 2), # 趨勢支撐預設看月線
         "volume": int(latest['Volume']),
         "vol_ma5": int(latest['VolMA5'])
     }
