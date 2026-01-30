@@ -6,71 +6,106 @@ import json
 def check_gold_wrapped_silver(df: pd.DataFrame) -> dict:
     """
     金包銀策略判讀邏輯 (僅適用於 60分K).
+    V3 Update: 支援「正向金包銀 (多頭)」與「逆向金包銀 (空頭)」雙向判斷。
     """
     latest = df.iloc[-1]
-    prev = df.iloc[-5] # 比較前 5 根 K 棒判斷趨勢
+    prev = df.iloc[-5] 
     
-    # 1. 銀 (外層)
-    # 上壓力: 120MA 或 240MA (需下壓)
-    ma120_down = latest['MA120'] < prev['MA120']
-    ma240_down = latest['MA240'] < prev['MA240']
-    upper_ma = "MA120" if latest['MA120'] > latest['MA240'] else "MA240"
-    upper_val = latest[upper_ma]
-    is_upper_pressing = ma120_down or ma240_down
+    # 0. 趨勢定義 (Trend Definition)
+    # 計算 60MA 斜率
+    ma60_slope = (latest['MA60'] - prev['MA60']) / prev['MA60']
     
-    # 下支撐: 60MA (需上揚或走平)
-    is_lower_supporting = latest['MA60'] >= prev['MA60'] * 0.998 # 容許微幅走平
+    if ma60_slope > 0.0005:
+        ma60_trend = "UP"
+    elif ma60_slope < -0.0005:
+        ma60_trend = "DOWN"
+    else:
+        ma60_trend = "FLAT"
+
+    # 1. 均線數據準備
+    # 長均線 (120MA / 240MA)
+    ma120 = latest['MA120']
+    ma240 = latest['MA240']
+    ma60 = latest['MA60']
     
-    # 2. 金 (內層糾結)
-    # 5, 10, 20 MA 是否靠得很近 (標準差 < 均價的 0.5%)
+    # 短均線糾結度計算
     short_mas = [latest['MA5'], latest['MA10'], latest['MA20']]
     avg_short = sum(short_mas) / 3
     std_dev = (sum([(x - avg_short)**2 for x in short_mas]) / 3)**0.5
-    is_clumping = (std_dev / avg_short) < 0.005 # 糾結比例
+    cv_rate = std_dev / avg_short # 變異係數 (糾結率)
     
-    # 3. 判斷位置: 60MA < 短均 < 120/240MA
-    # 嚴格條件: 全數短均線都在 60MA 之上，且在壓力之下
-    strict_wrapped = latest['MA60'] < min(short_mas) and max(short_mas) < upper_val
-    
-    # 寬鬆條件 (Forming): 允許短均暫時跌破 60MA (2% 緩衝)，或暫時突破壓力 (2% 緩衝)
-    # 代表形態正在醞釀，尚未完全收斂
-    loose_wrapped = (latest['MA60'] * 0.98) < avg_short < (upper_val * 1.02)
-
-    # 4. 判斷狀態
+    # 2. 狀態判斷變數初始化
     status = "NONE"
-    desc = "未符合金包銀特徵。"
+    desc = "未符合特殊形態特徵。"
+    pattern_type = "NONE" # BULL (多) / BEAR (空)
     
-    # 計算糾結率百分比
-    cv_rate = std_dev / avg_short
+    # ==========================================
+    # 🐂 多頭金包銀 (Bullish Gold Wrapped in Silver)
+    # 結構: 60MA (支撐) < 短均糾結 < 120/240MA (壓力)
+    # ==========================================
+    upper_limit = max(ma120, ma240)
     
-    # A. 帶量突破 (最強訊號)
-    if loose_wrapped and latest['Close'] > upper_val and latest['Volume'] > latest['VolMA5'] * 1.2:
-        status = "BREAKOUT"
-        desc = f"【金包銀】帶量破繭而出！突破 {upper_ma} 壓力位，短均發散轉強。"
+    # 位置判定: 60MA 在下方，短均在中間 (允許 2% 誤差)
+    is_bull_pos = (ma60 * 0.98) < avg_short < (upper_limit * 1.02)
+    # 趨勢判定: 60MA 必須上揚或走平
+    is_bull_trend = ma60_trend in ["UP", "FLAT"]
+    
+    if is_bull_pos and is_bull_trend:
+        pattern_type = "BULL"
         
-    # B. 形態瓦解
-    elif latest['Close'] < latest['MA60'] * 0.98: # 真跌破
-        status = "FAIL"
-        desc = "【金包銀】形態瓦解，有效跌破生命線 60MA。"
-        
-    # C. 標準整理 (Squeeze) - 嚴格定義
-    elif strict_wrapped and cv_rate < 0.006:
-        status = "SQUEEZE"
-        desc = f"【金包銀】結構紮實 (Squeeze)，短均緊密糾結於 {upper_ma} 與 60MA 之間，隨時可能變盤。"
-
-    # D. 初入/醞釀中 (Forming) - 寬鬆定義
-    elif loose_wrapped and cv_rate < 0.015:
-        status = "FORMING"
-        desc = f"【金包銀】形態醞釀中 (Forming)，短均線開始收斂，關注能否站穩 60MA 並挑戰 {upper_ma}。"
+        # A. 帶量突破 (Breakout)
+        if latest['Close'] > upper_limit and latest['Volume'] > latest['VolMA5'] * 1.2:
+            status = "BREAKOUT"
+            desc = f"【金包銀】帶量破繭而出！突破長均線壓力，多頭主升段訊號。"
             
+        # B. 形態瓦解 (Fail)
+        elif latest['Close'] < ma60 * 0.98:
+            status = "FAIL"
+            desc = "【金包銀】多頭形態瓦解，有效跌破生命線 60MA。"
+            
+        # C. 糾結整理 (Squeeze/Forming)
+        elif cv_rate < 0.015:
+            strength = "SQUEEZE (紮實)" if cv_rate < 0.006 else "FORMING (醞釀)"
+            status = strength.split()[0]
+            desc = f"【金包銀】{strength}，短均糾結於 60MA 之上，蓄勢待發。"
+
+    # ==========================================
+    # 🐻 逆向金包銀 (Bearish Reverse Gold Wrapped)
+    # 結構: 120/240MA (地板) < 短均糾結 < 60MA (蓋頭壓力)
+    # ==========================================
+    lower_limit = min(ma120, ma240)
+    
+    # 位置判定: 60MA 在上方，短均在中間 (允許 2% 誤差)
+    is_bear_pos = (lower_limit * 0.98) < avg_short < (ma60 * 1.02)
+    # 趨勢判定: 60MA 必須下彎或走平
+    is_bear_trend = ma60_trend in ["DOWN", "FLAT"]
+    
+    # 只有在非多頭形態時才檢查空頭 (避免衝突)
+    if pattern_type == "NONE" and is_bear_pos and is_bear_trend:
+        pattern_type = "BEAR"
+        
+        # A. 帶量下殺 (Breakdown) - 空頭起跌點
+        if latest['Close'] < lower_limit and latest['Volume'] > latest['VolMA5'] * 1.2:
+            status = "BEAR_BREAKDOWN"
+            desc = f"【逆向金包銀】帶量跌破長均地板！60MA 下彎蓋頭，空頭主跌段開始。"
+            
+        # B. 空頭形態失敗 (Rebound) - 站回 60MA
+        elif latest['Close'] > ma60 * 1.02:
+            status = "BEAR_FAIL"
+            desc = "【逆向金包銀】空頭形態失效，股價強勢站回 60MA。"
+            
+        # C. 弱勢整理 (Bearish Squeeze)
+        elif cv_rate < 0.015:
+            status = "BEAR_SQUEEZE"
+            desc = f"【逆向金包銀】空頭醞釀中，短均糾結於 60MA 之下，隨時可能破底。"
+
     return {
         "pattern_found": status != "NONE",
+        "pattern_type": pattern_type, # BULL / BEAR
         "status": status,
         "description": desc,
-        "upper_ma_type": upper_ma,
-        "upper_ma_val": round(float(upper_val), 2),
-        "lower_ma_val": round(float(latest['MA60']), 2),
-        "convergence_rate": round(float(std_dev / avg_short * 100), 3)
+        "ma60_trend": ma60_trend,
+        "convergence_rate": round(float(cv_rate * 100), 3)
     }
 
 def analyze_stock(ticker_symbol: str, interval: str = "1d") -> dict:
@@ -269,7 +304,7 @@ def analyze_stock(ticker_symbol: str, interval: str = "1d") -> dict:
         kd_signal = "DEAD_CROSS"
         
     output_data["kd_signal"] = kd_signal
-    
+    output_data["strategy_gold_silver"] = None
     # 如果是 60分K，執行金包銀策略判斷
     if interval == "60m" and len(df) >= 240:
         output_data["strategy_gold_silver"] = check_gold_wrapped_silver(df)
