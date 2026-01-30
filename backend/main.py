@@ -75,7 +75,8 @@ def ticker_endpoint():
 @app.route('/task', methods=['POST'])
 def execute_task():
     """
-    核心 Gemini 分析任務端點
+    核心分析任務端點
+    執行流程: 接收請求 -> 爬取數據(日線+60分+CB) -> 合併數據 -> Gemini 分析 -> 回傳
     """
     try:
         data = request.get_json(silent=True)
@@ -83,92 +84,111 @@ def execute_task():
             return jsonify({"error": "Empty payload"}), 400
 
         user_question = data.get("question", "")
-        system_prompt = data.get("system_prompt", "")
+        system_prompt = data.get("system_prompt", "") # 前端可覆蓋 prompt
             
         if not user_question:
             return jsonify({"error": "Question is empty"}), 400
 
-        # --- Pre-fetch 策略: 自動偵測股票代號並注入資料 ---
-        stock_context = ""
+        # --- 步驟 1: 數據獲取與合併 (Data Fetching & Merging) ---
+        # 建立一個空字典，準備將所有來源的數據合併成單一 JSON
+        stock_data_context = {} 
         match = re.search(r'(\d{4})', user_question)
+        
         if match:
             ticker = match.group(1)
-            print(f"Detected Ticker: {ticker}, fetching data...")
+            app.logger.info(f"Detected Ticker: {ticker}, fetching data...")
+            
             try:
-                # 1. 獲取日線數據
+                # A. 獲取日線數據 (基礎數據)
                 daily_data = get_precise_data(ticker)
+                if daily_data and "error" not in daily_data:
+                    stock_data_context.update(daily_data)
                 
-                # 2. 獲取 60分K 數據 (含金包銀策略)
+                # B. 獲取 60分K 數據 (提取金包銀策略)
+                # 注意: 我們只提取 'strategy_gold_silver'，避免覆蓋日線的 MA 數值
                 m60_data = get_60m_data(ticker)
+                if m60_data and "strategy_gold_silver" in m60_data:
+                    stock_data_context["strategy_gold_silver"] = m60_data["strategy_gold_silver"]
+                else:
+                    stock_data_context["strategy_gold_silver"] = None
                 
-                # 4. 獲取可轉債數據 (需要現價)
-                cb_data = None
-                if isinstance(daily_data, dict) and "close" in daily_data:
-                    try:
-                        current_price = daily_data["close"]
-                        cb_data = get_cb_info(ticker, current_price)
-                        print(f"CB data fetched for {ticker} with price {current_price}")
-                    except Exception as cb_err:
-                        print(f"Warning: Failed to fetch CB data: {cb_err}")
+                # C. 獲取可轉債數據 (需要日線現價來計算乖離率)
+                if "close" in stock_data_context:
+                    current_price = stock_data_context["close"]
+                    cb_data = get_cb_info(ticker, current_price)
+                    if cb_data:
+                        stock_data_context.update(cb_data) # 合併 has_cb, cb_list
+                    else:
+                        stock_data_context["has_cb"] = False
+                        stock_data_context["cb_list"] = []
                 
-                # 組合上下文
-                stock_context = f"\n\n[系統自動獲取數據]\n"
-                stock_context += f"- 日線分析: \n```json\n{json.dumps(daily_data, ensure_ascii=False, indent=2)}\n```\n"
-                stock_context += f"- 60分鐘線(金包銀策略): \n```json\n{json.dumps(m60_data, ensure_ascii=False, indent=2)}\n```\n"
-                
-                # 加入可轉債數據
-                if cb_data:
-                    stock_context += f"- 可轉債數據: \n```json\n{json.dumps(cb_data, ensure_ascii=False, indent=2)}\n```\n"
-                
-                stock_context += "\n請根據上述數據，特別是 60分K 的「金包銀」形態與可轉債狀況（若有）進行深度技術分析。"
-                
-                print("Daily, 60m, and CB stock data injected successfully.")
+                app.logger.info("Stock data fetched and merged successfully.")
+
             except Exception as e:
-                print(f"Warning: Failed to fetch stock data: {e}")
+                app.logger.error(f"Failed to fetch stock data: {e}")
+                # 即使抓取失敗，程式仍繼續執行，讓 AI 根據有限資訊或網路搜尋回答
         
-        # 2. 組合 Prompt
+        # --- 步驟 2: 構建 Prompt ---
+        # 讀取 System Prompt (優先使用 Payload，否則讀取檔案)
         final_system_prompt = ""
         if system_prompt:
             final_system_prompt = system_prompt
         else:
             file_content, error = read_prompt_file()
             if error:
-                print(f"Warning: {error}")
-                final_system_prompt = "你是專業的投資分析師。"
+                app.logger.warning(error)
+                final_system_prompt = "你是專業的投資分析師，請依據數據進行分析。"
             else:
                 final_system_prompt = file_content
         
-        final_user_input = user_question + stock_context
+        # 將合併後的數據轉為 JSON 字串
+        json_input_str = json.dumps(stock_data_context, ensure_ascii=False, indent=2)
+        
+        # 構建最終給 Gemini 的輸入內容 (User Prompt)
+        # 明確標示這是系統自動獲取的 JSON 數據
+        final_user_input = f"""
+{user_question}
 
-        # 4. 初始化 Client
-        print(f"Initializing Gemini Client for question: {user_question[:30]}...")
+---
+### 系統自動獲取數據 (JSON)
+請嚴格依據以下數據進行技術分析與策略判斷：
+```json
+{json_input_str}
+```
+"""
+
+        # --- 步驟 3: 初始化 Gemini Client ---
+        app.logger.info(f"Initializing Gemini Client...")
         client = genai.Client(
             vertexai=True, 
             project=PROJECT_ID,
             location=LOCATION
         )
 
+        # 啟用 Google Search 工具 (對應 Prompt 的基本面聯網要求)
         search_tool = Tool(
             google_search=GoogleSearch() 
         )
 
-        # 6. 呼叫 Gemini
-        print("Waiting for Gemini response (with Google Search)...")
+        # --- 步驟 4: 生成內容 ---
+        app.logger.info("Calling Gemini API...")
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=final_user_input,
             config=GenerateContentConfig(
                 tools=[search_tool],
                 system_instruction=final_system_prompt,
-                temperature=0.3,
+                temperature=0.3, # 降低隨機性，讓分析更穩定
             )
         )
-        print("Gemini response received.")
+        
+        answer = response.text if response.text else "抱歉，分析生成失敗，請稍後再試。"
+        app.logger.info("Gemini response received.")
 
-        return jsonify({"answer": response.text})
+        return jsonify({"answer": answer})
 
     except Exception as e:
-        print(f"Error Details: {e}")
+        app.logger.error(f"Task Execution Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 # 回溯相容或舊路徑轉發 (如果需要)
